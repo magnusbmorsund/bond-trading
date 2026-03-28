@@ -12,8 +12,10 @@ INFLATION_ETF = "TIP"
 CREDIT_ETFS   = ["LQD", "HYG", "ANGL", "SJNK", "BKLN", "EMB", "PFF"]
 # Crisis / alternative hedge — activates when both duration + credit signals turn negative
 HEDGE_ETFS    = ["GLD"]
+# T-bill cash parking — activates when duration signal is negative (inverted curve / rate hikes)
+CASH_ETFS     = ["BIL"]
 
-ETF_UNIVERSE  = DURATION_ETFS + [INFLATION_ETF] + CREDIT_ETFS + HEDGE_ETFS
+ETF_UNIVERSE  = DURATION_ETFS + [INFLATION_ETF] + CREDIT_ETFS + HEDGE_ETFS + CASH_ETFS
 
 # --- FRED Series ---
 FRED_SERIES = {
@@ -41,6 +43,7 @@ MOMENTUM_SKIP   = 21
 MAX_CREDIT_ALLOC = 0.65   # max credit bucket allocation (risk-on)
 MAX_TIP_ALLOC    = 0.30   # max TIP allocation
 MAX_ALT_ALLOC    = 0.12   # max gold/hedge allocation (activates in stress)
+MAX_CASH_ALLOC   = 0.40   # max BIL (T-bill) allocation (activates when curve inverted)
 SIGNAL_BLEND     = 0.00   # 0=pure inv-vol, 1=pure signal weights
 
 # --- Volatility Targeting ---

@@ -1,23 +1,28 @@
 """
 Convert composite signals into monthly target weights.
 
-Four allocation buckets (always sum to 1.0):
+Five allocation buckets (always sum to 1.0):
 
   1. CREDIT  (LQD, HYG, ANGL, SJNK, BKLN, EMB, PFF)
-     Size driven by credit_z + VIX hard-cap.
+     Size ∝ credit_z, hard-capped by VIX.
      Weighted by inverse-vol within bucket.
 
-  2. HEDGE   (GLD)
-     Activated when BOTH duration_z AND credit_z are simultaneously negative
-     (stagflation / simultaneous rate-rise + spread widening).
-     Subject to momentum filter — redirects to SHY if GLD is in downtrend.
+  2. CASH    (BIL — 1-3 Month T-Bills)
+     Activates when duration_z is negative (inverted curve / rate-hike cycle).
+     BIL has ~0 duration so it doesn't fall when rates rise, and earns the
+     risk-free rate (5%+ in 2023-24). Carved from the rates budget so it
+     naturally replaces TLT/IEF/SHY when the curve inverts.
 
-  3. INFLATION (TIP)
-     Size driven by inflation_z.
+  3. HEDGE   (GLD)
+     Activates when BOTH duration_z AND credit_z are negative simultaneously
+     (stagflation / 2022-type). Falls back to SHY if GLD is in downtrend.
 
-  4. DURATION (TLT, IEF, SHY)
-     Remainder after credit + hedge + TIP.
-     Allocation within bucket driven by duration_z softmax.
+  4. INFLATION (TIP)
+     Size ∝ inflation_z.
+
+  5. DURATION (TLT, IEF, SHY)
+     Remainder after all other buckets.
+     Duration tilt within bucket via softmax on duration_z.
 """
 import pandas as pd
 import numpy as np
@@ -34,19 +39,28 @@ def _credit_frac(credit_z: float, vix_raw: float) -> float:
     if vix_raw > config.VIX_RISK_OFF:
         frac = min(frac, 0.10)
     elif vix_raw >= config.VIX_RISK_ON:
-        t   = (vix_raw - config.VIX_RISK_ON) / (config.VIX_RISK_OFF - config.VIX_RISK_ON)
-        cap = config.MAX_CREDIT_ALLOC * (1.0 - t) + 0.10 * t
+        t    = (vix_raw - config.VIX_RISK_ON) / (config.VIX_RISK_OFF - config.VIX_RISK_ON)
+        cap  = config.MAX_CREDIT_ALLOC * (1.0 - t) + 0.10 * t
         frac = min(frac, cap)
     return frac
 
 
+def _cash_frac(duration_z: float, rates_budget: float) -> float:
+    """
+    BIL allocation within the rates budget.
+    Grows smoothly as duration_z turns negative (curve flattens/inverts).
+    At duration_z = -2 (deeply inverted), up to MAX_CASH_ALLOC of the rates
+    budget parks in T-bills.
+    """
+    if duration_z >= 0:
+        return 0.0
+    stress = -duration_z   # positive when curve inverted
+    frac   = config.MAX_CASH_ALLOC * np.tanh(stress * 0.7)
+    return float(np.clip(frac * rates_budget, 0.0, config.MAX_CASH_ALLOC))
+
+
 def _alt_frac(duration_z: float, credit_z: float) -> float:
-    """
-    Gold hedge allocation.
-    Activates proportionally when BOTH signals are negative simultaneously
-    (the scenario where no bond ETF works — e.g. 2022 or 1994-style stagflation).
-    Linear with the combined stress; zero when either signal is positive.
-    """
+    """Gold allocation — activates when BOTH signals are simultaneously negative."""
     stress = max(0.0, -duration_z * 0.5 + -credit_z * 0.5)
     return float(np.clip(config.MAX_ALT_ALLOC * np.tanh(stress * 0.8), 0.0, config.MAX_ALT_ALLOC))
 
@@ -93,43 +107,59 @@ def build_weights(
     for etf, alloc in _credit_weights_inv_vol(c_frac, vol).items():
         w[etf] = alloc
 
-    # ── 2. Gold hedge bucket ──────────────────────────────────────────────
+    rates_budget = 1.0 - c_frac
+
+    # ── 2. Cash (BIL) bucket ──────────────────────────────────────────────
+    bil_frac = _cash_frac(duration_z, rates_budget)
+    if bil_frac > 0 and not (
+        "BIL" in mom.index and pd.notna(mom["BIL"]) and mom["BIL"] < 0
+    ):
+        w["BIL"] = bil_frac
+    else:
+        bil_frac = 0.0   # redirect to duration bucket below
+
+    # ── 3. Gold hedge bucket ──────────────────────────────────────────────
     a_frac = _alt_frac(duration_z, credit_z)
-    # If GLD has negative momentum, redirect its budget to SHY instead
-    gld_mom_ok = "GLD" in mom.index and (pd.isna(mom["GLD"]) or mom["GLD"] >= 0)
-    if a_frac > 0 and gld_mom_ok:
+    gld_ok  = not ("GLD" in mom.index and pd.notna(mom["GLD"]) and mom["GLD"] < 0)
+    if a_frac > 0 and gld_ok:
         w["GLD"] = a_frac
     else:
-        a_frac = 0.0   # will go to duration bucket below
+        a_frac = 0.0
 
-    # ── 3. TIP allocation ─────────────────────────────────────────────────
-    rates_budget = 1.0 - c_frac - a_frac
-    tip_frac     = _tip_frac(inflation_z, rates_budget)
-    w["TIP"]     = tip_frac
-    pure_rates   = rates_budget - tip_frac
+    # ── 4. TIP allocation ─────────────────────────────────────────────────
+    pure_rates_budget = rates_budget - bil_frac - a_frac
+    tip_frac  = _tip_frac(inflation_z, pure_rates_budget)
+    w["TIP"]  = tip_frac
+    dur_budget = pure_rates_budget - tip_frac
 
-    # ── 4. Duration bucket ────────────────────────────────────────────────
+    # ── 5. Duration bucket ────────────────────────────────────────────────
     for etf, frac in _duration_weights(duration_z).items():
-        w[etf] = pure_rates * frac
+        w[etf] = dur_budget * frac
 
-    # ── 5. Momentum filter ────────────────────────────────────────────────
+    # ── 6. Momentum filter ────────────────────────────────────────────────
     for etf in config.ETF_UNIVERSE:
         if etf in mom.index and pd.notna(mom[etf]) and mom[etf] < 0:
             w[etf] = 0.0
 
-    # ── 6. Fallback ───────────────────────────────────────────────────────
+    # ── 7. Fallback ───────────────────────────────────────────────────────
     if w.sum() < 1e-6:
-        w["SHY"] = 1.0
+        w["BIL"] = 1.0   # use T-bills as ultimate fallback (not SHY)
         return w
 
-    # ── 7. Blend signal weights with inverse-vol weights ──────────────────
-    survivors    = w[w > 0].index
-    inv_vol      = 1.0 / vol.reindex(survivors).clip(lower=0.001)
-    iv_norm      = inv_vol / inv_vol.sum()
-    signal_norm  = w[survivors] / w[survivors].sum()
-    blend        = config.SIGNAL_BLEND
-    blended      = blend * signal_norm + (1.0 - blend) * iv_norm
-    w[survivors] = blended / blended.sum()
+    # ── 8. Blend signal weights with inverse-vol weights ──────────────────
+    # Exclude BIL and GLD from inv-vol blending — they're signal-driven
+    blend_etfs  = [e for e in config.ETF_UNIVERSE if e not in ("BIL", "GLD") and w[e] > 0]
+    fixed_etfs  = [e for e in ("BIL", "GLD") if w[e] > 0]
+    fixed_total = w[fixed_etfs].sum() if fixed_etfs else 0.0
+    free_budget = 1.0 - fixed_total
+
+    if blend_etfs and free_budget > 1e-6:
+        inv_vol     = 1.0 / vol.reindex(blend_etfs).clip(lower=0.001)
+        iv_norm     = inv_vol / inv_vol.sum()
+        signal_norm = w[blend_etfs] / w[blend_etfs].sum()
+        blend       = config.SIGNAL_BLEND
+        blended     = blend * signal_norm + (1.0 - blend) * iv_norm
+        w[blend_etfs] = blended / blended.sum() * free_budget
 
     return w
 

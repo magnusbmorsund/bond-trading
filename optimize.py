@@ -39,6 +39,7 @@ PARAM_SPACE = {
     "MAX_CREDIT_ALLOC": ("float", 0.30, 0.80, 0.05),
     "MAX_TIP_ALLOC":    ("float", 0.00, 0.30, 0.05),
     "MAX_ALT_ALLOC":    ("float", 0.00, 0.20, 0.05),   # gold hedge budget
+    "MAX_CASH_ALLOC":   ("float", 0.20, 0.60, 0.10),   # BIL T-bill cash parking
     "SIGNAL_BLEND":     ("float", 0.00, 1.00, 0.10),
     # Volatility targeting — cap at 9% to avoid excessive leverage blowups
     "VOL_TARGET":       ("float", 0.05, 0.09, 0.01),
