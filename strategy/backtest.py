@@ -32,6 +32,129 @@ def _vol_scale(raw_returns: pd.Series) -> pd.Series:
 
 
 # ---------------------------------------------------------------------------
+# Drawdown overlay — ride upswings, step aside in downturns
+# ---------------------------------------------------------------------------
+
+def _drawdown_overlay(ret: pd.Series, cash_rate: pd.Series) -> pd.Series:
+    """
+    Asymmetric exposure scaling:
+      - REDUCE to DD_SCALE when portfolio is in drawdown beyond DD_THRESHOLD
+        AND the previous day's return was negative (momentum confirms downturn).
+      - RE-ENTER FULLY as soon as the previous day's return turns positive
+        (catch upswings immediately).
+
+    Undeployed fraction earns the daily fed funds rate.
+
+    Parameters
+    ----------
+    ret       : vol-targeted daily returns
+    cash_rate : annual fed funds rate (daily series, forward-filled)
+    """
+    threshold = config.DD_THRESHOLD
+    dd_scale  = config.DD_SCALE
+
+    nav  = (1 + ret.fillna(0)).cumprod()
+    peak = nav.cummax()
+    dd   = (nav - peak) / peak   # always ≤ 0
+
+    # Lag by 1 day: today's scale is determined by yesterday's state
+    dd_lag  = dd.shift(1).fillna(0)
+    ret_lag = ret.shift(1).fillna(0)   # yesterday's return for momentum signal
+
+    # In drawdown AND yesterday was negative → reduce
+    # As soon as yesterday was positive → full re-entry (ride the upswing)
+    in_distress = (dd_lag <= threshold) & (ret_lag < 0)
+    scale = pd.Series(np.where(in_distress, dd_scale, 1.0), index=ret.index)
+
+    # Undeployed fraction earns fed funds rate (FEDFUNDS is in %, e.g. 5.25 → 0.0525 → daily)
+    daily_cash = cash_rate.reindex(ret.index).ffill().fillna(0) / 100 / 252
+    overlay    = ret * scale + daily_cash * (1.0 - scale)
+    return overlay
+
+
+# ---------------------------------------------------------------------------
+# Per-position trailing stops (commodity bucket)
+# ---------------------------------------------------------------------------
+
+def _apply_trailing_stops(daily_w: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
+    """
+    For each commodity ETF (HEDGE_ETFS), if today's price is more than
+    TRAILING_STOP_PCT below its TRAILING_STOP_WINDOW-day rolling peak,
+    zero that position and redirect the freed weight to SHY.
+
+    Applied daily — exits far faster than the monthly momentum rebalance,
+    cutting intra-month drawdowns in trending-down commodity regimes.
+    """
+    stop_pct = config.TRAILING_STOP_PCT
+    window   = config.TRAILING_STOP_WINDOW
+
+    hedge_cols = [e for e in config.HEDGE_ETFS if e in prices.columns]
+    if not hedge_cols:
+        return daily_w
+
+    # Lagged rolling peak (avoid look-ahead: yesterday's peak → today's decision)
+    hedge_prices = prices[hedge_cols].reindex(daily_w.index).ffill()
+    rolling_peak = hedge_prices.rolling(window, min_periods=1).max().shift(1)
+    stop_trigger = hedge_prices < rolling_peak * (1.0 - stop_pct)
+
+    w = daily_w.copy()
+    for etf in hedge_cols:
+        if etf not in w.columns:
+            continue
+        triggered = stop_trigger[etf].reindex(w.index).fillna(False)
+        freed      = w[etf].where(triggered, 0.0)
+        w[etf]     = w[etf].where(~triggered, 0.0)
+        if "SHY" in w.columns:
+            w["SHY"] = w["SHY"] + freed
+
+    return w
+
+
+# ---------------------------------------------------------------------------
+# Live effective weights (for production use)
+# ---------------------------------------------------------------------------
+
+def effective_weights(signal_weights: pd.Series, recent_prices: pd.DataFrame) -> pd.Series:
+    """
+    Apply trailing stops to a single set of signal weights against recent prices.
+
+    Use this when you want today's actionable positions, not historical backtest weights.
+    Any commodity ETF that has dropped > TRAILING_STOP_PCT below its
+    TRAILING_STOP_WINDOW-day rolling peak is zeroed out; freed weight goes to SHY.
+
+    Parameters
+    ----------
+    signal_weights : Series indexed by ETF ticker (latest monthly model weights)
+    recent_prices  : DataFrame of recent ETF prices (needs at least TRAILING_STOP_WINDOW rows)
+
+    Returns
+    -------
+    Series of effective weights (same index as signal_weights)
+    """
+    w = signal_weights.copy()
+    stop_pct = config.TRAILING_STOP_PCT
+    window   = config.TRAILING_STOP_WINDOW
+
+    for etf in config.HEDGE_ETFS:
+        if etf not in w.index or w[etf] <= 0:
+            continue
+        if etf not in recent_prices.columns:
+            continue
+        prices_etf = recent_prices[etf].dropna()
+        if len(prices_etf) < 2:
+            continue
+        peak = prices_etf.iloc[-window:].max()   # rolling peak over window
+        today = prices_etf.iloc[-1]
+        if today < peak * (1.0 - stop_pct):
+            freed = w[etf]
+            w[etf] = 0.0
+            if "SHY" in w.index:
+                w["SHY"] = w["SHY"] + freed
+
+    return w
+
+
+# ---------------------------------------------------------------------------
 # Main backtest
 # ---------------------------------------------------------------------------
 
@@ -70,11 +193,19 @@ def run(macro: pd.DataFrame, prices: pd.DataFrame) -> dict:
     # ── 4. Daily strategy returns (pre vol-target) ─────────────────────────
     daily_ret = prices[config.ETF_UNIVERSE].pct_change()
     daily_w   = weights.reindex(daily_ret.index, method="ffill").shift(1)
+
+    # ── 4b. Per-position trailing stops (commodity ETFs only) ──────────────
+    daily_w   = _apply_trailing_stops(daily_w, prices[config.ETF_UNIVERSE])
+
     raw_daily = (daily_w * daily_ret).sum(axis=1)
     raw_daily.name = "strategy_raw"
 
     # ── 5. Apply volatility targeting ─────────────────────────────────────
-    strategy_daily       = _vol_scale(raw_daily)
+    vol_scaled           = _vol_scale(raw_daily)
+
+    # ── 5b. Apply drawdown overlay (ride upswings, step aside in downturns)
+    cash_rate            = macro["fedfunds"] if "fedfunds" in macro.columns else pd.Series(0.0, index=macro.index)
+    strategy_daily       = _drawdown_overlay(vol_scaled, cash_rate)
     strategy_daily.name  = "strategy"
 
     # ── 6. Equal-weight benchmark (no vol targeting) ───────────────────────

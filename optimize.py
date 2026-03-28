@@ -38,23 +38,37 @@ PARAM_SPACE = {
     # Allocation caps
     "MAX_CREDIT_ALLOC": ("float", 0.30, 0.80, 0.05),
     "MAX_TIP_ALLOC":    ("float", 0.00, 0.30, 0.05),
-    "MAX_ALT_ALLOC":    ("float", 0.00, 0.20, 0.05),   # gold hedge budget
-    "MAX_CASH_ALLOC":   ("float", 0.20, 0.60, 0.10),   # BIL T-bill cash parking
     "SIGNAL_BLEND":     ("float", 0.00, 1.00, 0.10),
-    # Tighter vol/leverage — forces BIL to absorb risk rather than lever up
-    "VOL_TARGET":       ("float", 0.04, 0.07, 0.01),
-    "MAX_LEVERAGE":     ("float", 1.00, 1.25, 0.25),
+    # Vol/leverage
+    "VOL_TARGET":       ("float", 0.05, 0.15, 0.01),
+    "MAX_LEVERAGE":     ("float", 1.00, 1.75, 0.25),
     # VIX thresholds
     "VIX_RISK_OFF":     ("float", 18.0, 40.0, 1.0),
     "VIX_RISK_ON":      ("float", 10.0, 22.0, 1.0),
-    # Composite signal weights
-    "W_DURATION_2S10S": ("float", 0.10, 0.60, 0.10),
-    "W_DURATION_10Y3M": ("float", 0.10, 0.60, 0.10),
-    "W_DURATION_FED":   ("float", 0.10, 0.60, 0.10),
-    "W_CREDIT_HYOAS":   ("float", 0.30, 0.80, 0.10),
-    "W_CREDIT_VIX":     ("float", 0.20, 0.70, 0.10),
-    "W_INFLATION_BEI":  ("float", 0.20, 0.80, 0.10),
-    "W_INFLATION_CPI":  ("float", 0.20, 0.80, 0.10),
+    # Drawdown overlay — ride upswings, step aside in downturns
+    "DD_THRESHOLD":     ("float", -0.15, -0.02, 0.01),  # trigger drawdown level
+    "DD_SCALE":         ("float",  0.00,  0.50, 0.05),  # exposure fraction kept
+    # Per-position trailing stops on commodity ETFs
+    "TRAILING_STOP_PCT":    ("float", 0.03, 0.15, 0.01),  # % below rolling peak → exit
+    "TRAILING_STOP_WINDOW": ("int",   21,  126,  21),      # rolling peak lookback (days)
+    # Commodity allocation budget
+    "MAX_ALT_ALLOC":      ("float", 0.20, 0.60, 0.05),  # commodity basket max weight
+    # Duration composite weights
+    "W_DURATION_2S10S":   ("float", 0.05, 0.40, 0.05),
+    "W_DURATION_10Y3M":   ("float", 0.05, 0.40, 0.05),
+    "W_DURATION_FED":     ("float", 0.05, 0.30, 0.05),
+    "W_DURATION_REALYLD": ("float", 0.10, 0.50, 0.05),  # real yield (most important)
+    "W_DURATION_LABOR":   ("float", 0.00, 0.25, 0.05),  # unemployment trend
+    "W_DURATION_ISM":     ("float", 0.00, 0.25, 0.05),  # ISM PMI deceleration
+    # Credit composite weights
+    "W_CREDIT_HYOAS":     ("float", 0.15, 0.60, 0.05),
+    "W_CREDIT_IGMOM":     ("float", 0.05, 0.35, 0.05),  # IG spread momentum
+    "W_CREDIT_VIX":       ("float", 0.10, 0.50, 0.05),
+    "W_CREDIT_FEDQT":     ("float", 0.05, 0.35, 0.05),  # QT/QE regime
+    "W_CREDIT_TED":       ("float", 0.05, 0.35, 0.05),  # TED spread stress
+    # Inflation composite weights
+    "W_INFLATION_BEI":    ("float", 0.20, 0.80, 0.10),
+    "W_INFLATION_CPI":    ("float", 0.20, 0.80, 0.10),
 }
 
 BEST_PARAMS_PATH = os.path.join(os.path.dirname(__file__), "best_params.json")
@@ -101,7 +115,7 @@ def _run_on_slice(macro: pd.DataFrame, prices: pd.DataFrame) -> dict:
 # Objective
 # ---------------------------------------------------------------------------
 
-RETURN_TARGET = 0.05   # 5% annualised — realistic with tight drawdown constraints
+RETURN_TARGET = 0.10   # 10% annualised target — gold+bonds can deliver this
 
 def make_objective(macro_train, prices_train):
     def objective(trial):
@@ -120,15 +134,16 @@ def make_objective(macro_train, prices_train):
         n       = len(ret)
         ann_ret = float(nav.iloc[-1] ** (252 / n) - 1)
 
-        # Hard drawdown cap: -10% — scale sharply beyond that
-        dd_penalty     = max(0.0, abs(mdd) - 0.10) * 10.0
-        # Penalise annualised returns below 5% (realistic with tight constraints)
+        # Hard drawdown cap: target <10% — heavy penalty above that
+        dd_penalty     = max(0.0, abs(mdd) - 0.10) * 20.0   # very steep above 10%
+        # Penalise returns below 10% target
         return_penalty = max(0.0, RETURN_TARGET - ann_ret) * 4.0
-        # Penalise worst single month below -3.5%
+        # Penalise worst single month below -4%
         monthly_ret    = (1 + ret).resample("ME").prod() - 1
-        wm_penalty     = max(0.0, -0.035 - float(monthly_ret.min())) * 8.0
+        wm_penalty     = max(0.0, -0.04 - float(monthly_ret.min())) * 8.0
 
-        return sr - dd_penalty - return_penalty - wm_penalty
+        # Use weighted combo: Sharpe * ann_ret to reward both quality and magnitude
+        return sr * ann_ret * 10 - dd_penalty - return_penalty - wm_penalty
 
     return objective
 

@@ -3,26 +3,27 @@ Convert composite signals into monthly target weights.
 
 Five allocation buckets (always sum to 1.0):
 
-  1. CREDIT  (LQD, HYG, ANGL, SJNK, BKLN, EMB, PFF)
+  1. COMMODITIES (GLD, PDBC, DBA, DBB)
+     Primary alpha source — momentum-gated, inverse-vol weighted within bucket.
+     GLD:  monetary metal — real yields falling + inflation rising
+     PDBC: diversified (energy+metals+ag) — growth/inflation cycles, corr 0.27 to GLD
+     DBA:  agriculture — food inflation, lowest GLD correlation (0.16), low vol
+     DBB:  base metals — industrial/construction demand, corr 0.29 to GLD
+     Only holds an ETF when its 12-1 month momentum is positive.
+     Fixed income is the defensive "cash pool".
+
+  2. CREDIT  (LQD, HYG, ANGL, SJNK, BKLN, EMB, PFF)
      Size ∝ credit_z, hard-capped by VIX.
      Weighted by inverse-vol within bucket.
 
-  2. CASH    (BIL — 1-3 Month T-Bills)
-     Activates when duration_z is negative (inverted curve / rate-hike cycle).
-     BIL has ~0 duration so it doesn't fall when rates rise, and earns the
-     risk-free rate (5%+ in 2023-24). Carved from the rates budget so it
-     naturally replaces TLT/IEF/SHY when the curve inverts.
-
-  3. HEDGE   (GLD)
-     Activates when BOTH duration_z AND credit_z are negative simultaneously
-     (stagflation / 2022-type). Falls back to SHY if GLD is in downtrend.
-
-  4. INFLATION (TIP)
+  3. INFLATION (TIP)
      Size ∝ inflation_z.
 
-  5. DURATION (TLT, IEF, SHY)
-     Remainder after all other buckets.
+  4. DURATION (TLT, IEF, SHY)
+     Remainder — the defensive "cash pool".
      Duration tilt within bucket via softmax on duration_z.
+
+Cash during drawdowns is handled by the drawdown overlay in backtest.py, not here.
 """
 import pandas as pd
 import numpy as np
@@ -32,6 +33,50 @@ import config
 # ---------------------------------------------------------------------------
 # Sub-allocators
 # ---------------------------------------------------------------------------
+
+def _commodity_weights(
+    inflation_z: float,
+    duration_z: float,
+    mom: pd.Series,
+    vol: pd.Series,
+) -> dict:
+    """
+    Commodity / materials basket allocation.
+
+    Signal: commodities are collectively bullish when real yields fall (duration_z > 0)
+    AND/OR inflation rises (inflation_z > 0). Both conditions drive monetary metals,
+    energy, base metals, and agriculture higher.
+
+    Allocation rules:
+      - Total budget grows smoothly from 0 to MAX_ALT_ALLOC with signal strength.
+      - Only hold an ETF when its 12-1 month momentum is positive (hard gate).
+      - Within the budget, weight by inverse-vol (lower-vol = larger weight).
+        GLD naturally dominates (vol ~16%) vs PDBC (~18%), DBB (~20%), DBA (~13%).
+    """
+    # Combined commodity signal: inflation-bullish + real-yield-falling
+    comm_signal = 0.5 * inflation_z + 0.5 * duration_z
+
+    # Total commodity budget
+    raw_budget = config.MAX_ALT_ALLOC * (0.5 + 0.5 * np.tanh(comm_signal * 0.8))
+    budget = float(np.clip(raw_budget, 0.0, config.MAX_ALT_ALLOC))
+    if budget < 1e-4:
+        return {}
+
+    # Filter to ETFs with positive momentum and available vol
+    available = []
+    for etf in config.HEDGE_ETFS:
+        mom_neg = etf in mom.index and pd.notna(mom[etf]) and mom[etf] < 0
+        if not mom_neg and etf in vol.index and pd.notna(vol[etf]) and vol[etf] > 0:
+            available.append(etf)
+
+    if not available:
+        return {}
+
+    # Inverse-vol weighting within available ETFs
+    inv_vols = {e: 1.0 / max(vol[e], 0.01) for e in available}
+    total_iv  = sum(inv_vols.values())
+    return {e: budget * (iv / total_iv) for e, iv in inv_vols.items()}
+
 
 def _credit_frac(credit_z: float, vix_raw: float) -> float:
     soft = config.MAX_CREDIT_ALLOC * (0.5 + 0.5 * np.tanh(credit_z))
@@ -43,26 +88,6 @@ def _credit_frac(credit_z: float, vix_raw: float) -> float:
         cap  = config.MAX_CREDIT_ALLOC * (1.0 - t) + 0.10 * t
         frac = min(frac, cap)
     return frac
-
-
-def _cash_frac(duration_z: float, rates_budget: float) -> float:
-    """
-    BIL allocation within the rates budget.
-    Grows smoothly as duration_z turns negative (curve flattens/inverts).
-    At duration_z = -2 (deeply inverted), up to MAX_CASH_ALLOC of the rates
-    budget parks in T-bills.
-    """
-    if duration_z >= 0:
-        return 0.0
-    stress = -duration_z   # positive when curve inverted
-    frac   = config.MAX_CASH_ALLOC * np.tanh(stress * 0.7)
-    return float(np.clip(frac * rates_budget, 0.0, config.MAX_CASH_ALLOC))
-
-
-def _alt_frac(duration_z: float, credit_z: float) -> float:
-    """Gold allocation — activates when BOTH signals are simultaneously negative."""
-    stress = max(0.0, -duration_z * 0.5 + -credit_z * 0.5)
-    return float(np.clip(config.MAX_ALT_ALLOC * np.tanh(stress * 0.8), 0.0, config.MAX_ALT_ALLOC))
 
 
 def _tip_frac(inflation_z: float, rates_budget: float) -> float:
@@ -102,54 +127,48 @@ def build_weights(
 ) -> pd.Series:
     w = pd.Series(0.0, index=config.ETF_UNIVERSE)
 
-    # ── 1. Credit bucket ──────────────────────────────────────────────────
-    c_frac = _credit_frac(credit_z, vix_raw)
+    # ── 1. Commodity basket (primary alpha — ride the upswings) ──────────
+    comm = _commodity_weights(inflation_z, duration_z, mom, vol)
+    comm_total = 0.0
+    for etf, alloc in comm.items():
+        if etf in w.index:
+            w[etf]      = alloc
+            comm_total += alloc
+
+    remaining = 1.0 - comm_total
+
+    # ── 2. Credit bucket ──────────────────────────────────────────────────
+    c_frac = _credit_frac(credit_z, vix_raw) * remaining
     for etf, alloc in _credit_weights_inv_vol(c_frac, vol).items():
         w[etf] = alloc
 
-    rates_budget = 1.0 - c_frac
+    rates_budget = remaining - c_frac
 
-    # ── 2. Cash (BIL) bucket ──────────────────────────────────────────────
-    bil_frac = _cash_frac(duration_z, rates_budget)
-    if bil_frac > 0 and not (
-        "BIL" in mom.index and pd.notna(mom["BIL"]) and mom["BIL"] < 0
-    ):
-        w["BIL"] = bil_frac
-    else:
-        bil_frac = 0.0   # redirect to duration bucket below
-
-    # ── 3. Gold hedge bucket ──────────────────────────────────────────────
-    a_frac = _alt_frac(duration_z, credit_z)
-    gld_ok  = not ("GLD" in mom.index and pd.notna(mom["GLD"]) and mom["GLD"] < 0)
-    if a_frac > 0 and gld_ok:
-        w["GLD"] = a_frac
-    else:
-        a_frac = 0.0
-
-    # ── 4. TIP allocation ─────────────────────────────────────────────────
-    pure_rates_budget = rates_budget - bil_frac - a_frac
-    tip_frac  = _tip_frac(inflation_z, pure_rates_budget)
+    # ── 3. TIP allocation ─────────────────────────────────────────────────
+    tip_frac = _tip_frac(inflation_z, rates_budget)
     w["TIP"]  = tip_frac
-    dur_budget = pure_rates_budget - tip_frac
+    dur_budget = rates_budget - tip_frac
 
-    # ── 5. Duration bucket ────────────────────────────────────────────────
+    # ── 4. Duration bucket (defensive "cash pool") ────────────────────────
     for etf, frac in _duration_weights(duration_z).items():
         w[etf] = dur_budget * frac
 
-    # ── 6. Momentum filter ────────────────────────────────────────────────
-    for etf in config.ETF_UNIVERSE:
+    # ── 5. Momentum filter — zero out bonds/credit with negative momentum ──
+    # HEDGE_ETFS already filtered in _commodity_weights; apply to rest
+    for etf in config.DURATION_ETFS + [config.INFLATION_ETF] + config.CREDIT_ETFS:
         if etf in mom.index and pd.notna(mom[etf]) and mom[etf] < 0:
             w[etf] = 0.0
 
-    # ── 7. Fallback ───────────────────────────────────────────────────────
+    # ── 6. Fallback — park in SHY (shortest duration, lowest risk) ────────
     if w.sum() < 1e-6:
-        w["BIL"] = 1.0   # use T-bills as ultimate fallback (not SHY)
+        w["SHY"] = 1.0
         return w
 
-    # ── 8. Blend signal weights with inverse-vol weights ──────────────────
-    # Exclude BIL and GLD from inv-vol blending — they're signal-driven
-    blend_etfs  = [e for e in config.ETF_UNIVERSE if e not in ("BIL", "GLD") and w[e] > 0]
-    fixed_etfs  = [e for e in ("BIL", "GLD") if w[e] > 0]
+    # ── 7. Blend signal weights with inverse-vol weights ──────────────────
+    # Exclude commodity basket from blending — already inv-vol weighted
+    fixed_etfs = [e for e in config.HEDGE_ETFS if e in w.index and w[e] > 0]
+    blend_etfs = [e for e in config.ETF_UNIVERSE
+                  if e not in config.HEDGE_ETFS and e in w.index and w[e] > 0]
     fixed_total = w[fixed_etfs].sum() if fixed_etfs else 0.0
     free_budget = 1.0 - fixed_total
 
