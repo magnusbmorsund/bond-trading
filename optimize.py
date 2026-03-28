@@ -35,13 +35,12 @@ PARAM_SPACE = {
     "LOOKBACK_VOL":     ("int",    21, 126, 21),
     "MOMENTUM_WINDOW":  ("int",   126, 504, 21),
     "MOMENTUM_SKIP":    ("int",     0,  42,  5),
-    # Allocation caps
-    "MAX_CREDIT_ALLOC": ("float", 0.00, 0.50, 0.05),
-    "MAX_TIP_ALLOC":    ("float", 0.00, 0.40, 0.05),
+    # Allocation caps — credit can go higher with expanded universe
+    "MAX_CREDIT_ALLOC": ("float", 0.20, 0.70, 0.05),
+    "MAX_TIP_ALLOC":    ("float", 0.00, 0.30, 0.05),
     "SIGNAL_BLEND":     ("float", 0.00, 1.00, 0.10),
-    "CREDIT_LQD_SPLIT": ("float", 0.30, 0.70, 0.10),
-    # Volatility targeting
-    "VOL_TARGET":       ("float", 0.03, 0.10, 0.01),
+    # Volatility targeting — wider range to reach 5%+ returns
+    "VOL_TARGET":       ("float", 0.05, 0.12, 0.01),
     "MAX_LEVERAGE":     ("float", 1.00, 2.00, 0.25),
     # VIX thresholds
     "VIX_RISK_OFF":     ("float", 18.0, 35.0, 1.0),
@@ -100,6 +99,8 @@ def _run_on_slice(macro: pd.DataFrame, prices: pd.DataFrame) -> dict:
 # Objective
 # ---------------------------------------------------------------------------
 
+RETURN_TARGET = 0.05   # 5% annualised — penalise strategies below this
+
 def make_objective(macro_train, prices_train):
     def objective(trial):
         params = _suggest_params(trial)
@@ -110,12 +111,19 @@ def make_objective(macro_train, prices_train):
             return -10.0
 
         ret = results["daily_returns"].dropna()
+        nav = results["nav"]
         sr  = sharpe(ret)
-        mdd = max_drawdown(results["nav"])
+        mdd = max_drawdown(nav)
 
-        # Penalise drawdowns worse than 15 %
-        penalty = max(0.0, abs(mdd) - 0.15) * 5.0
-        return sr - penalty
+        n       = len(ret)
+        ann_ret = float(nav.iloc[-1] ** (252 / n) - 1)
+
+        # Penalise drawdowns beyond 15%
+        dd_penalty     = max(0.0, abs(mdd) - 0.15) * 4.0
+        # Penalise annualised returns below 5% target
+        return_penalty = max(0.0, RETURN_TARGET - ann_ret) * 5.0
+
+        return sr - dd_penalty - return_penalty
 
     return objective
 
