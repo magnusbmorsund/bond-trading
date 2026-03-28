@@ -30,14 +30,30 @@ from analysis.performance import sharpe, max_drawdown, summary
 # ---------------------------------------------------------------------------
 
 PARAM_SPACE = {
-    "LOOKBACK_SIGNAL":  ("int",   126, 504, 21),   # 6 – 24 months
-    "LOOKBACK_VOL":     ("int",    21, 126, 21),   # 1 – 6 months
-    "MOMENTUM_WINDOW":  ("int",   126, 504, 21),   # 6 – 24 months
-    "MOMENTUM_SKIP":    ("int",     0,  42,  5),   # 0 – 2 months
-    "MAX_CREDIT_ALLOC": ("float", 0.0, 0.50, 0.05),
-    "MAX_TIP_ALLOC":    ("float", 0.0, 0.40, 0.05),
-    "SIGNAL_BLEND":     ("float", 0.0, 1.00, 0.10),
-    "CREDIT_LQD_SPLIT": ("float", 0.3, 0.70, 0.10),
+    # Lookback windows
+    "LOOKBACK_SIGNAL":  ("int",   126, 504, 21),
+    "LOOKBACK_VOL":     ("int",    21, 126, 21),
+    "MOMENTUM_WINDOW":  ("int",   126, 504, 21),
+    "MOMENTUM_SKIP":    ("int",     0,  42,  5),
+    # Allocation caps
+    "MAX_CREDIT_ALLOC": ("float", 0.00, 0.50, 0.05),
+    "MAX_TIP_ALLOC":    ("float", 0.00, 0.40, 0.05),
+    "SIGNAL_BLEND":     ("float", 0.00, 1.00, 0.10),
+    "CREDIT_LQD_SPLIT": ("float", 0.30, 0.70, 0.10),
+    # Volatility targeting
+    "VOL_TARGET":       ("float", 0.03, 0.10, 0.01),
+    "MAX_LEVERAGE":     ("float", 1.00, 2.00, 0.25),
+    # VIX thresholds
+    "VIX_RISK_OFF":     ("float", 18.0, 35.0, 1.0),
+    "VIX_RISK_ON":      ("float", 10.0, 20.0, 1.0),
+    # Composite signal weights
+    "W_DURATION_2S10S": ("float", 0.10, 0.60, 0.10),
+    "W_DURATION_10Y3M": ("float", 0.10, 0.60, 0.10),
+    "W_DURATION_FED":   ("float", 0.10, 0.60, 0.10),
+    "W_CREDIT_HYOAS":   ("float", 0.30, 0.80, 0.10),
+    "W_CREDIT_VIX":     ("float", 0.20, 0.70, 0.10),
+    "W_INFLATION_BEI":  ("float", 0.20, 0.80, 0.10),
+    "W_INFLATION_CPI":  ("float", 0.20, 0.80, 0.10),
 }
 
 BEST_PARAMS_PATH = os.path.join(os.path.dirname(__file__), "best_params.json")

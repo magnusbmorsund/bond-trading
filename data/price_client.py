@@ -37,6 +37,24 @@ def fetch_prices(tickers: list = None, start: str = "2000-01-01", force: bool = 
     return prices
 
 
+def fetch_vix(start: str = "2000-01-01", force: bool = False) -> pd.Series:
+    """Fetch VIX index (^VIX) as a daily Series, with local cache."""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    path = os.path.join(DATA_DIR, "vix.csv")
+
+    if not force and os.path.exists(path):
+        cached = pd.read_csv(path, index_col=0, parse_dates=True).squeeze()
+        if (pd.Timestamp.today() - cached.index[-1]).days <= 1:
+            return cached
+
+    raw = yf.download("^VIX", start=start, auto_adjust=True, progress=False)
+    vix = raw["Close"].squeeze()
+    vix.name = "vix"
+    vix.to_csv(path, header=True)
+    print(f"  Fetched VIX ({len(vix)} trading days)")
+    return vix
+
+
 def compute_returns(prices: pd.DataFrame) -> pd.DataFrame:
     """Daily log returns."""
     return prices.apply(lambda col: col.dropna().pct_change()).reindex(prices.index)
