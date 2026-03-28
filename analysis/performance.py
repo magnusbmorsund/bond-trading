@@ -1,0 +1,148 @@
+"""
+Performance analytics and plotting.
+"""
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+
+# ---------------------------------------------------------------------------
+# Metrics
+# ---------------------------------------------------------------------------
+
+def sharpe(returns: pd.Series, rf: float = 0.0, periods: int = 252) -> float:
+    excess = returns - rf / periods
+    return float(excess.mean() / excess.std() * np.sqrt(periods))
+
+
+def max_drawdown(nav: pd.Series) -> float:
+    peak = nav.cummax()
+    dd   = (nav - peak) / peak
+    return float(dd.min())
+
+
+def calmar(nav: pd.Series, returns: pd.Series, periods: int = 252) -> float:
+    ann_ret = (nav.iloc[-1] ** (periods / len(returns))) - 1
+    mdd = abs(max_drawdown(nav))
+    return ann_ret / mdd if mdd > 0 else np.nan
+
+
+def drawdown_series(nav: pd.Series) -> pd.Series:
+    peak = nav.cummax()
+    return (nav - peak) / peak
+
+
+def summary(returns: pd.Series, nav: pd.Series, label: str = "Strategy") -> pd.Series:
+    n = len(returns)
+    ann_ret  = (nav.iloc[-1] ** (252 / n)) - 1
+    ann_vol  = returns.std() * np.sqrt(252)
+    sr       = sharpe(returns)
+    mdd      = max_drawdown(nav)
+    cal      = calmar(nav, returns)
+    win_rate = (returns > 0).mean()
+
+    monthly_ret = (1 + returns).resample("ME").prod() - 1
+    best_month  = monthly_ret.max()
+    worst_month = monthly_ret.min()
+
+    return pd.Series({
+        "Ann. Return":    f"{ann_ret:.1%}",
+        "Ann. Volatility":f"{ann_vol:.1%}",
+        "Sharpe Ratio":   f"{sr:.2f}",
+        "Max Drawdown":   f"{mdd:.1%}",
+        "Calmar Ratio":   f"{cal:.2f}",
+        "Win Rate (daily)":f"{win_rate:.1%}",
+        "Best Month":     f"{best_month:.1%}",
+        "Worst Month":    f"{worst_month:.1%}",
+        "Total Return":   f"{nav.iloc[-1] - 1:.1%}",
+        "Start":          str(nav.index[0].date()),
+        "End":            str(nav.index[-1].date()),
+    }, name=label)
+
+
+# ---------------------------------------------------------------------------
+# Plotting
+# ---------------------------------------------------------------------------
+
+def plot_results(results: dict, save_path: str = None):
+    fig, axes = plt.subplots(4, 1, figsize=(14, 18), gridspec_kw={"height_ratios": [3, 2, 2, 2]})
+    fig.suptitle("Bond Rotation Strategy — Backtest Results", fontsize=14, fontweight="bold")
+
+    nav    = results["nav"]
+    nav_bm = results["nav_bm"]
+    ret    = results["daily_returns"]
+    ret_bm = results["daily_returns_bm"]
+    w      = results["weights"]
+
+    # ── Panel 1: NAV ──────────────────────────────────────────────────────
+    ax = axes[0]
+    ax.plot(nav.index,    nav,    label="Strategy",       linewidth=1.5)
+    ax.plot(nav_bm.index, nav_bm, label="Equal-Weight BM",linewidth=1.2, alpha=0.7, linestyle="--")
+    ax.set_ylabel("NAV (start = 1.0)")
+    ax.set_title("Cumulative NAV")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # ── Panel 2: Drawdown ─────────────────────────────────────────────────
+    ax = axes[1]
+    ax.fill_between(nav.index,    drawdown_series(nav),    0, alpha=0.5, label="Strategy",        color="steelblue")
+    ax.fill_between(nav_bm.index, drawdown_series(nav_bm), 0, alpha=0.3, label="Equal-Weight BM", color="orange")
+    ax.set_ylabel("Drawdown")
+    ax.set_title("Drawdown")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # ── Panel 3: Portfolio weights ─────────────────────────────────────────
+    ax = axes[2]
+    colors = ["#2196F3", "#64B5F6", "#BBDEFB", "#4CAF50", "#FF9800", "#F44336"]
+    w.plot.area(ax=ax, stacked=True, color=colors, alpha=0.85, linewidth=0)
+    ax.set_ylabel("Weight")
+    ax.set_ylim(0, 1)
+    ax.set_title("Monthly Portfolio Weights")
+    ax.legend(loc="upper right", fontsize=8, ncol=3)
+    ax.grid(True, alpha=0.3)
+
+    # ── Panel 4: Rolling 12m Sharpe ────────────────────────────────────────
+    ax = axes[3]
+    roll_sr    = ret.rolling(252).apply(lambda x: sharpe(x))
+    roll_sr_bm = ret_bm.rolling(252).apply(lambda x: sharpe(x))
+    ax.plot(roll_sr.index,    roll_sr,    label="Strategy",       linewidth=1.2)
+    ax.plot(roll_sr_bm.index, roll_sr_bm, label="Equal-Weight BM",linewidth=1.0, alpha=0.7, linestyle="--")
+    ax.axhline(0, color="black", linewidth=0.8, linestyle=":")
+    ax.set_ylabel("Sharpe (12m rolling)")
+    ax.set_title("Rolling 12-Month Sharpe Ratio")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    for ax in axes:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+        ax.xaxis.set_major_locator(mdates.YearLocator(2))
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
+        print(f"  Saved chart → {save_path}")
+    else:
+        plt.show()
+
+    plt.close()
+
+
+def print_summary_table(results: dict):
+    ret    = results["daily_returns"]
+    nav    = results["nav"]
+    ret_bm = results["daily_returns_bm"]
+    nav_bm = results["nav_bm"]
+
+    s1 = summary(ret,    nav,    "Strategy")
+    s2 = summary(ret_bm, nav_bm, "EW Benchmark")
+
+    tbl = pd.concat([s1, s2], axis=1)
+    print("\n" + "=" * 52)
+    print("BACKTEST SUMMARY")
+    print("=" * 52)
+    print(tbl.to_string())
+    print("=" * 52)
