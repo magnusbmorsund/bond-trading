@@ -180,6 +180,14 @@ def build_weights(
         blended     = blend * signal_norm + (1.0 - blend) * iv_norm
         w[blend_etfs] = blended / blended.sum() * free_budget
 
+    # ── 8. Ensure full investment ──────────────────────────────────────────
+    # If momentum filter zeroed all non-commodity ETFs (e.g. 2022 rate spike),
+    # blend_etfs is empty and free_budget goes unallocated. Park it in SHY so
+    # the portfolio is always fully invested (or earning cash via DD overlay).
+    residual = 1.0 - w.sum()
+    if residual > 1e-4 and "SHY" in w.index:
+        w["SHY"] = w["SHY"] + residual
+
     return w
 
 

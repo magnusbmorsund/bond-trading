@@ -3,11 +3,20 @@ Fetch and cache ETF price data from Yahoo Finance.
 """
 import os
 import pandas as pd
+import numpy as np
 import yfinance as yf
 
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config import ETF_UNIVERSE, DATA_DIR
+
+
+def _price_is_fresh(last_date: pd.Timestamp) -> bool:
+    """Cache is fresh if it covers the most recent completed trading day."""
+    today = pd.Timestamp.today().normalize()
+    # Roll back to the last business day (handles weekends & today pre-market)
+    last_bday = pd.Timestamp(np.busday_offset(today.date(), 0, roll="backward"))
+    return last_date.normalize() >= last_bday
 
 
 def _cache_path() -> str:
@@ -27,7 +36,7 @@ def fetch_prices(tickers: list = None, start: str = "2000-01-01", force: bool = 
 
     if not force and os.path.exists(path):
         cached = pd.read_csv(path, index_col=0, parse_dates=True)
-        if (pd.Timestamp.today() - cached.index[-1]).days <= 1:
+        if _price_is_fresh(cached.index[-1]):
             return cached
 
     raw = yf.download(tickers, start=start, auto_adjust=True, progress=False)
@@ -44,7 +53,7 @@ def fetch_vix(start: str = "2000-01-01", force: bool = False) -> pd.Series:
 
     if not force and os.path.exists(path):
         cached = pd.read_csv(path, index_col=0, parse_dates=True).squeeze()
-        if (pd.Timestamp.today() - cached.index[-1]).days <= 1:
+        if _price_is_fresh(cached.index[-1]):
             return cached
 
     raw = yf.download("^VIX", start=start, auto_adjust=True, progress=False)

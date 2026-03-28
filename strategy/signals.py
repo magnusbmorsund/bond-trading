@@ -248,7 +248,7 @@ def momentum(prices: pd.DataFrame) -> pd.DataFrame:
     """12-1 month cross-sectional momentum. Positive → include."""
     past   = prices.shift(config.MOMENTUM_SKIP)
     longer = prices.shift(config.MOMENTUM_WINDOW)
-    return (past / longer - 1).rename(columns=lambda c: c)
+    return past / longer - 1
 
 
 def rolling_vol(prices: pd.DataFrame) -> pd.DataFrame:

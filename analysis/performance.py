@@ -95,7 +95,11 @@ def plot_results(results: dict, save_path: str = None):
 
     # ── Panel 3: Portfolio weights ─────────────────────────────────────────
     ax = axes[2]
-    colors = ["#2196F3", "#64B5F6", "#BBDEFB", "#4CAF50", "#FF9800", "#F44336"]
+    # Generate one color per ETF grouped by bucket: duration=blues, inflation=green,
+    # credit=oranges/reds, commodities=golds. Falls back to a colormap for any size.
+    import matplotlib.cm as cm
+    n = len(w.columns)
+    colors = [cm.tab20(i / max(n - 1, 1)) for i in range(n)]
     w.plot.area(ax=ax, stacked=True, color=colors, alpha=0.85, linewidth=0)
     ax.set_ylabel("Weight")
     ax.set_ylim(0, 1)
