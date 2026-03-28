@@ -4,12 +4,16 @@ import os
 FRED_API_KEY = os.getenv("FRED_API_KEY", "08b619abe65ba421c8b44520629987ba")
 
 # --- Universe ---
-# Expanded to include high-yield, floating-rate and EM instruments
-ETF_UNIVERSE  = ["TLT", "IEF", "SHY", "TIP", "LQD", "HYG", "ANGL", "BKLN", "EMB"]
-
-DURATION_ETFS = ["TLT", "IEF", "SHY"]                  # high → low duration
-CREDIT_ETFS   = ["LQD", "HYG", "ANGL", "BKLN", "EMB"]  # all credit/spread instruments
+# Duration
+DURATION_ETFS = ["TLT", "IEF", "SHY"]
+# Inflation-linked
 INFLATION_ETF = "TIP"
+# Credit / spread (IG → short-duration HY → floating → EM → preferred)
+CREDIT_ETFS   = ["LQD", "HYG", "ANGL", "SJNK", "BKLN", "EMB", "PFF"]
+# Crisis / alternative hedge — activates when both duration + credit signals turn negative
+HEDGE_ETFS    = ["GLD"]
+
+ETF_UNIVERSE  = DURATION_ETFS + [INFLATION_ETF] + CREDIT_ETFS + HEDGE_ETFS
 
 # --- FRED Series ---
 FRED_SERIES = {
@@ -25,29 +29,30 @@ FRED_SERIES = {
 }
 
 # --- Backtest Parameters ---
-BACKTEST_START  = "2005-01-01"   # ANGL/BKLN live 2011-2012; handled via NaN until sufficient history
-REBALANCE_FREQ  = "ME"           # Month-end rebalancing
+BACKTEST_START  = "2005-01-01"
+REBALANCE_FREQ  = "ME"
 
-LOOKBACK_SIGNAL = 252            # Trading days for z-score (≈12m)
-LOOKBACK_VOL    = 63             # Trading days for volatility (≈3m)
-MOMENTUM_WINDOW = 252            # 12-month momentum lookback
-MOMENTUM_SKIP   = 21             # Skip last month to avoid reversal bias
+LOOKBACK_SIGNAL = 252
+LOOKBACK_VOL    = 63
+MOMENTUM_WINDOW = 252
+MOMENTUM_SKIP   = 21
 
 # --- Allocation Limits ---
-MAX_CREDIT_ALLOC = 0.65          # Up to 65% in credit when fully risk-on
-MAX_TIP_ALLOC    = 0.30          # Max TIP allocation
-SIGNAL_BLEND     = 0.00          # 1.0=pure signal, 0.0=pure inverse-vol (optimiser will tune)
+MAX_CREDIT_ALLOC = 0.65   # max credit bucket allocation (risk-on)
+MAX_TIP_ALLOC    = 0.30   # max TIP allocation
+MAX_ALT_ALLOC    = 0.12   # max gold/hedge allocation (activates in stress)
+SIGNAL_BLEND     = 0.00   # 0=pure inv-vol, 1=pure signal weights
 
 # --- Volatility Targeting ---
-VOL_TARGET   = 0.07   # 7% annualised vol target → ~5-7% return at Sharpe 0.7-1.0
-MAX_LEVERAGE = 1.5    # cap on vol-scaling leverage
-VOL_LOOKBACK = 21     # days of realised vol for scaling factor
+VOL_TARGET   = 0.07
+MAX_LEVERAGE = 1.5
+VOL_LOOKBACK = 21
 
 # --- VIX Thresholds ---
-VIX_RISK_OFF = 25.0   # VIX above this → cap credit at 10%
-VIX_RISK_ON  = 15.0   # VIX below this → full credit budget allowed
+VIX_RISK_OFF = 25.0
+VIX_RISK_ON  = 15.0
 
-# --- Composite Signal Weights (Optuna-tunable) ---
+# --- Composite Signal Weights ---
 W_DURATION_2S10S = 0.35
 W_DURATION_10Y3M = 0.35
 W_DURATION_FED   = 0.30

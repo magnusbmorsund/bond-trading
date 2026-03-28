@@ -1,11 +1,23 @@
 """
 Convert composite signals into monthly target weights.
 
-Credit bucket (LQD, HYG, ANGL, BKLN, EMB) is weighted by inverse-vol within
-the bucket — this naturally favours LQD (low vol) in stress and shifts to
-BKLN/ANGL/EMB (higher yield, similar vol) in calm periods.
+Four allocation buckets (always sum to 1.0):
 
-VIX hard-cap prevents runaway credit exposure in stressed markets.
+  1. CREDIT  (LQD, HYG, ANGL, SJNK, BKLN, EMB, PFF)
+     Size driven by credit_z + VIX hard-cap.
+     Weighted by inverse-vol within bucket.
+
+  2. HEDGE   (GLD)
+     Activated when BOTH duration_z AND credit_z are simultaneously negative
+     (stagflation / simultaneous rate-rise + spread widening).
+     Subject to momentum filter — redirects to SHY if GLD is in downtrend.
+
+  3. INFLATION (TIP)
+     Size driven by inflation_z.
+
+  4. DURATION (TLT, IEF, SHY)
+     Remainder after credit + hedge + TIP.
+     Allocation within bucket driven by duration_z softmax.
 """
 import pandas as pd
 import numpy as np
@@ -17,20 +29,26 @@ import config
 # ---------------------------------------------------------------------------
 
 def _credit_frac(credit_z: float, vix_raw: float) -> float:
-    """
-    Soft-scale credit allocation by credit_z; hard-cap by VIX level.
-    """
     soft = config.MAX_CREDIT_ALLOC * (0.5 + 0.5 * np.tanh(credit_z))
     frac = float(np.clip(soft, 0.0, config.MAX_CREDIT_ALLOC))
-
     if vix_raw > config.VIX_RISK_OFF:
         frac = min(frac, 0.10)
     elif vix_raw >= config.VIX_RISK_ON:
-        t    = (vix_raw - config.VIX_RISK_ON) / (config.VIX_RISK_OFF - config.VIX_RISK_ON)
-        cap  = config.MAX_CREDIT_ALLOC * (1.0 - t) + 0.10 * t
+        t   = (vix_raw - config.VIX_RISK_ON) / (config.VIX_RISK_OFF - config.VIX_RISK_ON)
+        cap = config.MAX_CREDIT_ALLOC * (1.0 - t) + 0.10 * t
         frac = min(frac, cap)
-
     return frac
+
+
+def _alt_frac(duration_z: float, credit_z: float) -> float:
+    """
+    Gold hedge allocation.
+    Activates proportionally when BOTH signals are negative simultaneously
+    (the scenario where no bond ETF works — e.g. 2022 or 1994-style stagflation).
+    Linear with the combined stress; zero when either signal is positive.
+    """
+    stress = max(0.0, -duration_z * 0.5 + -credit_z * 0.5)
+    return float(np.clip(config.MAX_ALT_ALLOC * np.tanh(stress * 0.8), 0.0, config.MAX_ALT_ALLOC))
 
 
 def _tip_frac(inflation_z: float, rates_budget: float) -> float:
@@ -47,11 +65,8 @@ def _duration_weights(duration_z: float) -> dict:
 
 
 def _credit_weights_inv_vol(c_frac: float, vol: pd.Series) -> dict:
-    """
-    Allocate c_frac across CREDIT_ETFS using inverse-vol within the bucket.
-    ETFs without vol data (not yet listed) are excluded automatically.
-    """
-    available = [e for e in config.CREDIT_ETFS if e in vol.index and pd.notna(vol[e]) and vol[e] > 0]
+    available = [e for e in config.CREDIT_ETFS
+                 if e in vol.index and pd.notna(vol[e]) and vol[e] > 0]
     if not available:
         return {}
     inv_vol = 1.0 / vol[available].clip(lower=0.001)
@@ -73,37 +88,45 @@ def build_weights(
 ) -> pd.Series:
     w = pd.Series(0.0, index=config.ETF_UNIVERSE)
 
-    # ── 1. Credit bucket — inverse-vol within bucket ───────────────────────
+    # ── 1. Credit bucket ──────────────────────────────────────────────────
     c_frac = _credit_frac(credit_z, vix_raw)
     for etf, alloc in _credit_weights_inv_vol(c_frac, vol).items():
         w[etf] = alloc
 
-    # ── 2. TIP allocation ─────────────────────────────────────────────────
-    rates_budget = 1.0 - c_frac
+    # ── 2. Gold hedge bucket ──────────────────────────────────────────────
+    a_frac = _alt_frac(duration_z, credit_z)
+    # If GLD has negative momentum, redirect its budget to SHY instead
+    gld_mom_ok = "GLD" in mom.index and (pd.isna(mom["GLD"]) or mom["GLD"] >= 0)
+    if a_frac > 0 and gld_mom_ok:
+        w["GLD"] = a_frac
+    else:
+        a_frac = 0.0   # will go to duration bucket below
+
+    # ── 3. TIP allocation ─────────────────────────────────────────────────
+    rates_budget = 1.0 - c_frac - a_frac
     tip_frac     = _tip_frac(inflation_z, rates_budget)
     w["TIP"]     = tip_frac
     pure_rates   = rates_budget - tip_frac
 
-    # ── 3. Duration bucket ────────────────────────────────────────────────
+    # ── 4. Duration bucket ────────────────────────────────────────────────
     for etf, frac in _duration_weights(duration_z).items():
         w[etf] = pure_rates * frac
 
-    # ── 4. Momentum filter ────────────────────────────────────────────────
+    # ── 5. Momentum filter ────────────────────────────────────────────────
     for etf in config.ETF_UNIVERSE:
         if etf in mom.index and pd.notna(mom[etf]) and mom[etf] < 0:
             w[etf] = 0.0
 
-    # ── 5. Fallback ───────────────────────────────────────────────────────
+    # ── 6. Fallback ───────────────────────────────────────────────────────
     if w.sum() < 1e-6:
         w["SHY"] = 1.0
         return w
 
-    # ── 6. Blend signal weights with inverse-vol weights ──────────────────
+    # ── 7. Blend signal weights with inverse-vol weights ──────────────────
     survivors    = w[w > 0].index
     inv_vol      = 1.0 / vol.reindex(survivors).clip(lower=0.001)
     iv_norm      = inv_vol / inv_vol.sum()
     signal_norm  = w[survivors] / w[survivors].sum()
-
     blend        = config.SIGNAL_BLEND
     blended      = blend * signal_norm + (1.0 - blend) * iv_norm
     w[survivors] = blended / blended.sum()

@@ -31,20 +31,21 @@ from analysis.performance import sharpe, max_drawdown, summary
 
 PARAM_SPACE = {
     # Lookback windows
-    "LOOKBACK_SIGNAL":  ("int",   126, 504, 21),
+    "LOOKBACK_SIGNAL":  ("int",    84, 504, 21),
     "LOOKBACK_VOL":     ("int",    21, 126, 21),
     "MOMENTUM_WINDOW":  ("int",   126, 504, 21),
     "MOMENTUM_SKIP":    ("int",     0,  42,  5),
-    # Allocation caps — credit can go higher with expanded universe
-    "MAX_CREDIT_ALLOC": ("float", 0.20, 0.70, 0.05),
+    # Allocation caps
+    "MAX_CREDIT_ALLOC": ("float", 0.30, 0.80, 0.05),
     "MAX_TIP_ALLOC":    ("float", 0.00, 0.30, 0.05),
+    "MAX_ALT_ALLOC":    ("float", 0.00, 0.20, 0.05),   # gold hedge budget
     "SIGNAL_BLEND":     ("float", 0.00, 1.00, 0.10),
-    # Volatility targeting — wider range to reach 5%+ returns
-    "VOL_TARGET":       ("float", 0.05, 0.12, 0.01),
-    "MAX_LEVERAGE":     ("float", 1.00, 2.00, 0.25),
+    # Volatility targeting — cap at 9% to avoid excessive leverage blowups
+    "VOL_TARGET":       ("float", 0.05, 0.09, 0.01),
+    "MAX_LEVERAGE":     ("float", 1.00, 1.75, 0.25),
     # VIX thresholds
-    "VIX_RISK_OFF":     ("float", 18.0, 35.0, 1.0),
-    "VIX_RISK_ON":      ("float", 10.0, 20.0, 1.0),
+    "VIX_RISK_OFF":     ("float", 18.0, 40.0, 1.0),
+    "VIX_RISK_ON":      ("float", 10.0, 22.0, 1.0),
     # Composite signal weights
     "W_DURATION_2S10S": ("float", 0.10, 0.60, 0.10),
     "W_DURATION_10Y3M": ("float", 0.10, 0.60, 0.10),
@@ -99,7 +100,7 @@ def _run_on_slice(macro: pd.DataFrame, prices: pd.DataFrame) -> dict:
 # Objective
 # ---------------------------------------------------------------------------
 
-RETURN_TARGET = 0.05   # 5% annualised — penalise strategies below this
+RETURN_TARGET = 0.06   # 6% annualised — penalise strategies below this
 
 def make_objective(macro_train, prices_train):
     def objective(trial):
@@ -118,12 +119,15 @@ def make_objective(macro_train, prices_train):
         n       = len(ret)
         ann_ret = float(nav.iloc[-1] ** (252 / n) - 1)
 
-        # Penalise drawdowns beyond 15%
-        dd_penalty     = max(0.0, abs(mdd) - 0.15) * 4.0
-        # Penalise annualised returns below 5% target
+        # Penalise drawdowns beyond 12% (tighter — want minimal vol)
+        dd_penalty     = max(0.0, abs(mdd) - 0.12) * 6.0
+        # Penalise annualised returns below 6% target
         return_penalty = max(0.0, RETURN_TARGET - ann_ret) * 5.0
+        # Penalise worst-month below -4%
+        monthly_ret    = (1 + ret).resample("ME").prod() - 1
+        wm_penalty     = max(0.0, -0.04 - float(monthly_ret.min())) * 4.0
 
-        return sr - dd_penalty - return_penalty
+        return sr - dd_penalty - return_penalty - wm_penalty
 
     return objective
 
