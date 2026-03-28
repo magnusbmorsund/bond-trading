@@ -41,9 +41,9 @@ PARAM_SPACE = {
     "MAX_ALT_ALLOC":    ("float", 0.00, 0.20, 0.05),   # gold hedge budget
     "MAX_CASH_ALLOC":   ("float", 0.20, 0.60, 0.10),   # BIL T-bill cash parking
     "SIGNAL_BLEND":     ("float", 0.00, 1.00, 0.10),
-    # Volatility targeting — cap at 9% to avoid excessive leverage blowups
-    "VOL_TARGET":       ("float", 0.05, 0.09, 0.01),
-    "MAX_LEVERAGE":     ("float", 1.00, 1.75, 0.25),
+    # Tighter vol/leverage — forces BIL to absorb risk rather than lever up
+    "VOL_TARGET":       ("float", 0.04, 0.07, 0.01),
+    "MAX_LEVERAGE":     ("float", 1.00, 1.25, 0.25),
     # VIX thresholds
     "VIX_RISK_OFF":     ("float", 18.0, 40.0, 1.0),
     "VIX_RISK_ON":      ("float", 10.0, 22.0, 1.0),
@@ -101,7 +101,7 @@ def _run_on_slice(macro: pd.DataFrame, prices: pd.DataFrame) -> dict:
 # Objective
 # ---------------------------------------------------------------------------
 
-RETURN_TARGET = 0.06   # 6% annualised — penalise strategies below this
+RETURN_TARGET = 0.05   # 5% annualised — realistic with tight drawdown constraints
 
 def make_objective(macro_train, prices_train):
     def objective(trial):
@@ -120,13 +120,13 @@ def make_objective(macro_train, prices_train):
         n       = len(ret)
         ann_ret = float(nav.iloc[-1] ** (252 / n) - 1)
 
-        # Penalise drawdowns beyond 12% (tighter — want minimal vol)
-        dd_penalty     = max(0.0, abs(mdd) - 0.12) * 6.0
-        # Penalise annualised returns below 6% target
-        return_penalty = max(0.0, RETURN_TARGET - ann_ret) * 5.0
-        # Penalise worst-month below -4%
+        # Hard drawdown cap: -10% — scale sharply beyond that
+        dd_penalty     = max(0.0, abs(mdd) - 0.10) * 10.0
+        # Penalise annualised returns below 5% (realistic with tight constraints)
+        return_penalty = max(0.0, RETURN_TARGET - ann_ret) * 4.0
+        # Penalise worst single month below -3.5%
         monthly_ret    = (1 + ret).resample("ME").prod() - 1
-        wm_penalty     = max(0.0, -0.04 - float(monthly_ret.min())) * 4.0
+        wm_penalty     = max(0.0, -0.035 - float(monthly_ret.min())) * 8.0
 
         return sr - dd_penalty - return_penalty - wm_penalty
 
