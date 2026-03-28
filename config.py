@@ -32,9 +32,13 @@ MOMENTUM_WINDOW  = 252                   # 12-month momentum
 MOMENTUM_SKIP    = 21                    # Skip last month (≈1m)
 
 # Maximum credit allocation (LQD+HYG combined)
-MAX_CREDIT_ALLOC = 0.40
+MAX_CREDIT_ALLOC  = 0.40
 # Maximum TIP allocation
-MAX_TIP_ALLOC    = 0.35
+MAX_TIP_ALLOC     = 0.35
+# Blend ratio: 1.0 = pure signal weights, 0.0 = pure inverse-vol weights
+SIGNAL_BLEND      = 0.50
+# LQD share within the credit bucket (remainder goes to HYG)
+CREDIT_LQD_SPLIT  = 0.55
 
 # --- Paths ---
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "cache")
