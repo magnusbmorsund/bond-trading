@@ -5,6 +5,7 @@ Weights are set at each month-end close, effective the next trading day.
 Volatility targeting scales daily exposure so that realised portfolio vol
 tracks config.VOL_TARGET — this is the main lever for hitting a return target.
 """
+import logging
 import pandas as pd
 import numpy as np
 import config
@@ -13,6 +14,8 @@ from strategy.signals   import (
     compute_all_macro, momentum, rolling_vol, resample_to_month_end
 )
 from strategy.portfolio import build_weight_series
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -26,7 +29,6 @@ def _vol_scale(raw_returns: pd.Series) -> pd.Series:
     Leverage is capped at config.MAX_LEVERAGE.
     """
     realised_vol = raw_returns.rolling(config.VOL_LOOKBACK).std() * np.sqrt(252)
-    # Shift by 1: yesterday's vol → today's scaling
     scale = (config.VOL_TARGET / realised_vol.shift(1)).clip(upper=config.MAX_LEVERAGE)
     return raw_returns * scale
 
@@ -44,29 +46,32 @@ def _drawdown_overlay(ret: pd.Series, cash_rate: pd.Series) -> pd.Series:
         (catch upswings immediately).
 
     Undeployed fraction earns the daily fed funds rate.
-
-    Parameters
-    ----------
-    ret       : vol-targeted daily returns
-    cash_rate : annual fed funds rate (daily series, forward-filled)
     """
     threshold = config.DD_THRESHOLD
     dd_scale  = config.DD_SCALE
 
     nav  = (1 + ret.fillna(0)).cumprod()
     peak = nav.cummax()
-    dd   = (nav - peak) / peak   # always ≤ 0
+    dd   = (nav - peak) / peak
 
-    # Lag by 1 day: today's scale is determined by yesterday's state
     dd_lag  = dd.shift(1).fillna(0)
-    ret_lag = ret.shift(1).fillna(0)   # yesterday's return for momentum signal
+    ret_lag = ret.shift(1).fillna(0)
 
-    # In drawdown AND yesterday was negative → reduce
-    # As soon as yesterday was positive → full re-entry (ride the upswing)
     in_distress = (dd_lag <= threshold) & (ret_lag < 0)
     scale = pd.Series(np.where(in_distress, dd_scale, 1.0), index=ret.index)
 
-    # Undeployed fraction earns fed funds rate (FEDFUNDS is in %, e.g. 5.25 → 0.0525 → daily)
+    # Log drawdown overlay transitions (enter / exit)
+    transitions = in_distress.astype(int).diff().fillna(0)
+    entries = transitions[transitions == 1].index
+    exits   = transitions[transitions == -1].index
+    for dt in entries:
+        logger.warning(
+            "DD overlay ENTER: %s  dd=%.1f%%  (threshold=%.1f%%)",
+            dt.date(), dd_lag.loc[dt] * 100, threshold * 100,
+        )
+    for dt in exits:
+        logger.info("DD overlay EXIT:  %s  (resuming full exposure)", dt.date())
+
     daily_cash = cash_rate.reindex(ret.index).ffill().fillna(0) / 100 / 252
     overlay    = ret * scale + daily_cash * (1.0 - scale)
     return overlay
@@ -92,7 +97,6 @@ def _apply_trailing_stops(daily_w: pd.DataFrame, prices: pd.DataFrame) -> pd.Dat
     if not hedge_cols:
         return daily_w
 
-    # Lagged rolling peak (avoid look-ahead: yesterday's peak → today's decision)
     hedge_prices = prices[hedge_cols].reindex(daily_w.index).ffill()
     rolling_peak = hedge_prices.rolling(window, min_periods=1).max().shift(1)
     stop_trigger = hedge_prices < rolling_peak * (1.0 - stop_pct)
@@ -106,6 +110,17 @@ def _apply_trailing_stops(daily_w: pd.DataFrame, prices: pd.DataFrame) -> pd.Dat
         w[etf]     = w[etf].where(~triggered, 0.0)
         if "SHY" in w.columns:
             w["SHY"] = w["SHY"] + freed
+
+        # Log first trigger date per ETF (avoid log flood for multi-year stop periods)
+        trigger_dates = triggered[triggered].index
+        if len(trigger_dates):
+            first = trigger_dates[0]
+            last  = trigger_dates[-1]
+            n     = len(trigger_dates)
+            logger.info(
+                "Trailing stop: %s triggered on %d days  (first=%s, last=%s)",
+                etf, n, first.date(), last.date(),
+            )
 
     return w
 
@@ -131,7 +146,7 @@ def effective_weights(signal_weights: pd.Series, recent_prices: pd.DataFrame) ->
     -------
     Series of effective weights (same index as signal_weights)
     """
-    w = signal_weights.copy()
+    w        = signal_weights.copy()
     stop_pct = config.TRAILING_STOP_PCT
     window   = config.TRAILING_STOP_WINDOW
 
@@ -143,9 +158,15 @@ def effective_weights(signal_weights: pd.Series, recent_prices: pd.DataFrame) ->
         prices_etf = recent_prices[etf].dropna()
         if len(prices_etf) < 2:
             continue
-        peak = prices_etf.iloc[-window:].max()   # rolling peak over window
+        peak  = prices_etf.iloc[-window:].max()
         today = prices_etf.iloc[-1]
         if today < peak * (1.0 - stop_pct):
+            pct_below = (peak - today) / peak
+            logger.warning(
+                "Trailing stop active: %s is %.1f%% below %d-day peak "
+                "(today=%.2f  peak=%.2f) — position zeroed, weight moved to SHY",
+                etf, pct_below * 100, window, today, peak,
+            )
             freed = w[etf]
             w[etf] = 0.0
             if "SHY" in w.index:
@@ -192,7 +213,8 @@ def run(macro: pd.DataFrame, prices: pd.DataFrame) -> dict:
 
     # ── 4. Daily strategy returns (pre vol-target) ─────────────────────────
     daily_ret = prices[config.ETF_UNIVERSE].pct_change()
-    daily_w   = weights.reindex(daily_ret.index, method="ffill").shift(1)
+    # Fix: .reindex().ffill() instead of deprecated .reindex(method="ffill")
+    daily_w   = weights.reindex(daily_ret.index).ffill().shift(1)
 
     # ── 4b. Per-position trailing stops (commodity ETFs only) ──────────────
     daily_w   = _apply_trailing_stops(daily_w, prices[config.ETF_UNIVERSE])
@@ -209,7 +231,7 @@ def run(macro: pd.DataFrame, prices: pd.DataFrame) -> dict:
     strategy_daily.name  = "strategy"
 
     # ── 6. Equal-weight benchmark (no vol targeting) ───────────────────────
-    bm_w           = pd.Series(1 / len(config.ETF_UNIVERSE), index=config.ETF_UNIVERSE)
+    bm_w            = pd.Series(1 / len(config.ETF_UNIVERSE), index=config.ETF_UNIVERSE)
     benchmark_daily = (daily_ret * bm_w).sum(axis=1)
     benchmark_daily.name = "benchmark_ew"
 

@@ -24,9 +24,12 @@ Five allocation buckets (always sum to 1.0):
 
 Cash during drawdowns is handled by the drawdown overlay in backtest.py, not here.
 """
+import logging
 import pandas as pd
 import numpy as np
 import config
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -52,16 +55,13 @@ def _commodity_weights(
       - Within the budget, weight by inverse-vol (lower-vol = larger weight).
         GLD naturally dominates (vol ~16%) vs PDBC (~18%), DBA (~13%).
     """
-    # Combined commodity signal: inflation-bullish + real-yield-falling
     comm_signal = 0.5 * inflation_z + 0.5 * duration_z
 
-    # Total commodity budget
-    raw_budget = config.MAX_ALT_ALLOC * (0.5 + 0.5 * np.tanh(comm_signal * 0.8))
+    raw_budget = config.MAX_ALT_ALLOC * (0.5 + 0.5 * np.tanh(comm_signal * config.TANH_COMM_SCALE))
     budget = float(np.clip(raw_budget, 0.0, config.MAX_ALT_ALLOC))
-    if budget < 1e-4:
+    if budget < config.MIN_WEIGHT_THRESHOLD:
         return {}
 
-    # Filter to ETFs with positive momentum and available vol
     available = []
     for etf in config.HEDGE_ETFS:
         mom_neg = etf in mom.index and pd.notna(mom[etf]) and mom[etf] < 0
@@ -71,8 +71,7 @@ def _commodity_weights(
     if not available:
         return {}
 
-    # Inverse-vol weighting within available ETFs
-    inv_vols = {e: 1.0 / max(vol[e], 0.01) for e in available}
+    inv_vols  = {e: 1.0 / max(vol[e], config.MIN_VOL_CLIP) for e in available}
     total_iv  = sum(inv_vols.values())
     return {e: budget * (iv / total_iv) for e, iv in inv_vols.items()}
 
@@ -107,7 +106,7 @@ def _credit_weights_inv_vol(c_frac: float, vol: pd.Series) -> dict:
                  if e in vol.index and pd.notna(vol[e]) and vol[e] > 0]
     if not available:
         return {}
-    inv_vol = 1.0 / vol[available].clip(lower=0.001)
+    inv_vol = 1.0 / vol[available].clip(lower=config.INV_VOL_CLIP)
     weights  = inv_vol / inv_vol.sum()
     return {etf: c_frac * w for etf, w in weights.items()}
 
@@ -153,26 +152,24 @@ def build_weights(
         w[etf] = dur_budget * frac
 
     # ── 5. Momentum filter — zero out bonds/credit with negative momentum ──
-    # HEDGE_ETFS already filtered in _commodity_weights; apply to rest
     for etf in config.DURATION_ETFS + [config.INFLATION_ETF] + config.CREDIT_ETFS:
         if etf in mom.index and pd.notna(mom[etf]) and mom[etf] < 0:
             w[etf] = 0.0
 
     # ── 6. Fallback — park in SHY (shortest duration, lowest risk) ────────
-    if w.sum() < 1e-6:
+    if w.sum() < config.MIN_WEIGHT_THRESHOLD:
         w["SHY"] = 1.0
         return w
 
     # ── 7. Blend signal weights with inverse-vol weights ──────────────────
-    # Exclude commodity basket from blending — already inv-vol weighted
-    fixed_etfs = [e for e in config.HEDGE_ETFS if e in w.index and w[e] > 0]
-    blend_etfs = [e for e in config.ETF_UNIVERSE
-                  if e not in config.HEDGE_ETFS and e in w.index and w[e] > 0]
+    fixed_etfs  = [e for e in config.HEDGE_ETFS if e in w.index and w[e] > 0]
+    blend_etfs  = [e for e in config.ETF_UNIVERSE
+                   if e not in config.HEDGE_ETFS and e in w.index and w[e] > 0]
     fixed_total = w[fixed_etfs].sum() if fixed_etfs else 0.0
     free_budget = 1.0 - fixed_total
 
-    if blend_etfs and free_budget > 1e-6:
-        inv_vol     = 1.0 / vol.reindex(blend_etfs).clip(lower=0.001)
+    if blend_etfs and free_budget > config.MIN_WEIGHT_THRESHOLD:
+        inv_vol     = 1.0 / vol.reindex(blend_etfs).clip(lower=config.INV_VOL_CLIP)
         iv_norm     = inv_vol / inv_vol.sum()
         signal_norm = w[blend_etfs] / w[blend_etfs].sum()
         blend       = config.SIGNAL_BLEND
@@ -180,11 +177,8 @@ def build_weights(
         w[blend_etfs] = blended / blended.sum() * free_budget
 
     # ── 8. Ensure full investment ──────────────────────────────────────────
-    # If momentum filter zeroed all non-commodity ETFs (e.g. 2022 rate spike),
-    # blend_etfs is empty and free_budget goes unallocated. Park it in SHY so
-    # the portfolio is always fully invested (or earning cash via DD overlay).
     residual = 1.0 - w.sum()
-    if residual > 1e-4 and "SHY" in w.index:
+    if residual > config.MIN_WEIGHT_THRESHOLD and "SHY" in w.index:
         w["SHY"] = w["SHY"] + residual
 
     return w
@@ -216,4 +210,8 @@ def build_weight_series(
         )
         w.name = date
         records.append(w)
+
+    if not records:
+        raise ValueError("build_weight_series produced no rows — check that macro signals have valid data.")
+
     return pd.DataFrame(records)

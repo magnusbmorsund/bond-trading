@@ -100,5 +100,16 @@ W_CREDIT_TED       = 0.15   # TED spread financial stress (high TED = bearish cr
 W_INFLATION_BEI    = 0.50   # breakeven inflation ROC
 W_INFLATION_CPI    = 0.50   # CPI momentum
 
+# --- Numeric stability thresholds ---
+MIN_ZSCORE_CLIP      = 1e-6   # minimum std for rolling z-score (avoids div-by-zero)
+MIN_WEIGHT_THRESHOLD = 1e-4   # minimum non-zero weight before treating as zero
+MIN_VOL_CLIP         = 0.01   # minimum annualised vol (inverse-vol weighting)
+INV_VOL_CLIP         = 0.001  # tighter clip used inside credit inv-vol weighting
+TANH_COMM_SCALE      = 0.8    # scaling factor for commodity signal tanh compression
+
+# --- Data quality ---
+PRICE_SPIKE_THRESHOLD = 0.15  # warn if any ETF moves > 15% in a single day
+
 # --- Paths ---
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "cache")
+LOG_DIR  = os.path.join(os.path.dirname(__file__), "logs")

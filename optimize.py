@@ -9,6 +9,7 @@ Usage:
 """
 import argparse
 import warnings
+import logging
 import json
 import os
 
@@ -23,6 +24,8 @@ import config
 from data.pipeline       import load_all
 from strategy.backtest   import run
 from analysis.performance import sharpe, max_drawdown, summary
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -45,33 +48,36 @@ PARAM_SPACE = {
     # VIX thresholds
     "VIX_RISK_OFF":     ("float", 18.0, 40.0, 1.0),
     "VIX_RISK_ON":      ("float", 10.0, 22.0, 1.0),
-    # Drawdown overlay — ride upswings, step aside in downturns
-    "DD_THRESHOLD":     ("float", -0.15, -0.02, 0.01),  # trigger drawdown level
-    "DD_SCALE":         ("float",  0.00,  0.50, 0.05),  # exposure fraction kept
-    # Per-position trailing stops on commodity ETFs
-    "TRAILING_STOP_PCT":    ("float", 0.03, 0.15, 0.01),  # % below rolling peak → exit
-    "TRAILING_STOP_WINDOW": ("int",   21,  126,  21),      # rolling peak lookback (days)
+    # Drawdown overlay
+    "DD_THRESHOLD":     ("float", -0.15, -0.02, 0.01),
+    "DD_SCALE":         ("float",  0.00,  0.50, 0.05),
+    # Per-position trailing stops
+    "TRAILING_STOP_PCT":    ("float", 0.03, 0.15, 0.01),
+    "TRAILING_STOP_WINDOW": ("int",   21,  126,  21),
     # Commodity allocation budget
-    "MAX_ALT_ALLOC":      ("float", 0.20, 0.60, 0.05),  # commodity basket max weight
+    "MAX_ALT_ALLOC":      ("float", 0.20, 0.60, 0.05),
     # Duration composite weights
     "W_DURATION_2S10S":   ("float", 0.05, 0.40, 0.05),
     "W_DURATION_10Y3M":   ("float", 0.05, 0.40, 0.05),
     "W_DURATION_FED":     ("float", 0.05, 0.30, 0.05),
-    "W_DURATION_REALYLD": ("float", 0.10, 0.50, 0.05),  # real yield (most important)
-    "W_DURATION_LABOR":   ("float", 0.00, 0.25, 0.05),  # unemployment trend
-    "W_DURATION_ISM":     ("float", 0.00, 0.25, 0.05),  # ISM PMI deceleration
+    "W_DURATION_REALYLD": ("float", 0.10, 0.50, 0.05),
+    "W_DURATION_LABOR":   ("float", 0.00, 0.25, 0.05),
+    "W_DURATION_ISM":     ("float", 0.00, 0.25, 0.05),
     # Credit composite weights
     "W_CREDIT_HYOAS":     ("float", 0.15, 0.60, 0.05),
-    "W_CREDIT_IGMOM":     ("float", 0.05, 0.35, 0.05),  # IG spread momentum
+    "W_CREDIT_IGMOM":     ("float", 0.05, 0.35, 0.05),
     "W_CREDIT_VIX":       ("float", 0.10, 0.50, 0.05),
-    "W_CREDIT_FEDQT":     ("float", 0.05, 0.35, 0.05),  # QT/QE regime
-    "W_CREDIT_TED":       ("float", 0.05, 0.35, 0.05),  # TED spread stress
+    "W_CREDIT_FEDQT":     ("float", 0.05, 0.35, 0.05),
+    "W_CREDIT_TED":       ("float", 0.05, 0.35, 0.05),
     # Inflation composite weights
     "W_INFLATION_BEI":    ("float", 0.20, 0.80, 0.10),
     "W_INFLATION_CPI":    ("float", 0.20, 0.80, 0.10),
 }
 
 BEST_PARAMS_PATH = os.path.join(os.path.dirname(__file__), "best_params.json")
+
+# Annualised return target used in the objective penalty
+_RETURN_TARGET = 0.10
 
 
 # ---------------------------------------------------------------------------
@@ -103,11 +109,12 @@ def _suggest_params(trial) -> dict:
     return params
 
 
-def _run_on_slice(macro: pd.DataFrame, prices: pd.DataFrame) -> dict:
+def _run_on_slice(macro: pd.DataFrame, prices: pd.DataFrame) -> dict | None:
     """Run backtest on a data slice; return None on failure."""
     try:
         return run(macro, prices)
-    except Exception:
+    except Exception as exc:
+        logger.debug("Trial backtest failed: %s", exc)
         return None
 
 
@@ -115,9 +122,7 @@ def _run_on_slice(macro: pd.DataFrame, prices: pd.DataFrame) -> dict:
 # Objective
 # ---------------------------------------------------------------------------
 
-RETURN_TARGET = 0.10   # 10% annualised target — gold+bonds can deliver this
-
-def make_objective(macro_train, prices_train):
+def make_objective(macro_train: pd.DataFrame, prices_train: pd.DataFrame):
     def objective(trial):
         params = _suggest_params(trial)
         _apply_params(params)
@@ -134,15 +139,14 @@ def make_objective(macro_train, prices_train):
         n       = len(ret)
         ann_ret = float(nav.iloc[-1] ** (252 / n) - 1)
 
-        # Hard drawdown cap: target <10% — heavy penalty above that
-        dd_penalty     = max(0.0, abs(mdd) - 0.10) * 20.0   # very steep above 10%
-        # Penalise returns below 10% target
-        return_penalty = max(0.0, RETURN_TARGET - ann_ret) * 4.0
+        # Heavy penalty above 10% max drawdown
+        dd_penalty     = max(0.0, abs(mdd) - 0.10) * 20.0
+        # Penalise returns below 10% annualised target
+        return_penalty = max(0.0, _RETURN_TARGET - ann_ret) * 4.0
         # Penalise worst single month below -4%
         monthly_ret    = (1 + ret).resample("ME").prod() - 1
         wm_penalty     = max(0.0, -0.04 - float(monthly_ret.min())) * 8.0
 
-        # Use weighted combo: Sharpe * ann_ret to reward both quality and magnitude
         return sr * ann_ret * 10 - dd_penalty - return_penalty - wm_penalty
 
     return objective
@@ -153,7 +157,7 @@ def make_objective(macro_train, prices_train):
 # ---------------------------------------------------------------------------
 
 def run_optimization(n_trials: int = 300):
-    print("Loading data...")
+    logger.info("Loading data for optimization...")
     macro, prices = load_all()
 
     # ── Train / test split ─────────────────────────────────────────────────
@@ -161,22 +165,30 @@ def run_optimization(n_trials: int = 300):
     macro_train,  prices_train  = macro.iloc[:split],  prices.iloc[:split]
     macro_test,   prices_test   = macro.iloc[split:],  prices.iloc[split:]
 
-    train_end = macro_train.index[-1].date()
-    test_start = macro_test.index[0].date()
-    print(f"Train: {macro_train.index[0].date()} → {train_end}")
-    print(f"Test : {test_start} → {macro_test.index[-1].date()}")
+    logger.info(
+        "Train: %s → %s  |  Test: %s → %s",
+        macro_train.index[0].date(), macro_train.index[-1].date(),
+        macro_test.index[0].date(),  macro_test.index[-1].date(),
+    )
+    print(f"Train: {macro_train.index[0].date()} → {macro_train.index[-1].date()}")
+    print(f"Test : {macro_test.index[0].date()}  → {macro_test.index[-1].date()}")
     print(f"Running {n_trials} Optuna trials...\n")
 
     # ── Optimise ───────────────────────────────────────────────────────────
-    study = optuna.create_study(direction="maximize",
-                                sampler=optuna.samplers.TPESampler(seed=42))
-    study.optimize(make_objective(macro_train, prices_train),
-                   n_trials=n_trials,
-                   show_progress_bar=True)
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=optuna.samplers.TPESampler(seed=42),
+    )
+    study.optimize(
+        make_objective(macro_train, prices_train),
+        n_trials=n_trials,
+        show_progress_bar=True,
+    )
 
     best_params = study.best_params
     best_val    = study.best_value
     print(f"\nBest train objective (Sharpe - penalty): {best_val:.3f}")
+    logger.info("Optimization complete — best objective: %.3f", best_val)
 
     # ── Evaluate on test set ───────────────────────────────────────────────
     _apply_params(best_params)
@@ -209,8 +221,8 @@ def run_optimization(n_trials: int = 300):
 
     with open(BEST_PARAMS_PATH, "w") as f:
         json.dump(best_params, f, indent=2)
+    logger.info("Best params saved → %s", BEST_PARAMS_PATH)
     print(f"\nSaved → {BEST_PARAMS_PATH}")
-    print("To use: set these values in config.py, or load via load_best_params().")
 
     return best_params
 
@@ -224,6 +236,8 @@ def load_best_params() -> dict:
 
 
 if __name__ == "__main__":
+    import logging as _logging
+    _logging.basicConfig(level=_logging.INFO, format="%(levelname)s  %(message)s")
     parser = argparse.ArgumentParser()
     parser.add_argument("--trials", type=int, default=300)
     args = parser.parse_args()

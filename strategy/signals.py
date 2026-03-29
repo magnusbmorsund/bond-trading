@@ -20,9 +20,12 @@ INFLATION composite (→ TIP vs nominal):
 
 All constants are read from `config` at call time → optimise.py can patch them.
 """
+import logging
 import pandas as pd
 import numpy as np
 import config
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -32,7 +35,7 @@ import config
 def _zscore(s: pd.Series, lookback: int) -> pd.Series:
     mu = s.rolling(lookback).mean()
     sd = s.rolling(lookback).std()
-    return (s - mu) / sd.clip(lower=1e-6)
+    return (s - mu) / sd.clip(lower=config.MIN_ZSCORE_CLIP)
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +146,7 @@ def _fed_qt_signal(macro: pd.DataFrame) -> pd.Series:
     Weekly series → forward-filled to daily.
     """
     if "fed_assets" not in macro.columns:
+        logger.debug("fed_assets not in macro — fed_qt_signal set to 0")
         return pd.Series(0.0, index=macro.index, name="fed_qt_signal")
     fa = macro["fed_assets"].ffill()
     roc = fa.pct_change(63)     # 3-month growth rate
@@ -157,9 +161,9 @@ def _indpro_signal(macro: pd.DataFrame) -> pd.Series:
     Monthly series → forward-filled to daily.
     """
     if "indpro" not in macro.columns:
+        logger.debug("indpro not in macro — indpro_signal set to 0")
         return pd.Series(0.0, index=macro.index, name="indpro_signal")
     ip = macro["indpro"].ffill()
-    # 3m rate of change, inverted: declining production = positive (bullish bonds)
     roc = ip.pct_change(63)
     return _zscore(-roc, config.LOOKBACK_SIGNAL).rename("indpro_signal")
 
@@ -172,6 +176,7 @@ def _ted_stress_signal(macro: pd.DataFrame) -> pd.Series:
     Weekly series → forward-filled to daily.
     """
     if "ted_spread" not in macro.columns:
+        logger.debug("ted_spread not in macro — ted_stress_signal set to 0")
         return pd.Series(0.0, index=macro.index, name="ted_stress_signal")
     ted = macro["ted_spread"].ffill()
     return (-_zscore(ted, config.LOOKBACK_SIGNAL)).rename("ted_stress_signal")
@@ -194,18 +199,17 @@ def compute_all_macro(macro: pd.DataFrame) -> pd.DataFrame:
     fed     = _fed_direction(macro)
     realyld = _real_yield_signal(macro)
     labor   = _labor_market_signal(macro)
-    ism     = _indpro_signal(macro)          # Industrial production deceleration
+    ism     = _indpro_signal(macro)
 
     hyoas   = _hy_oas(macro)
     igmom   = _ig_spread_momentum(macro)
     vix     = _vix_regime(macro)
     fedqt   = _fed_qt_signal(macro)
-    ted     = _ted_stress_signal(macro)     # TED spread financial stress
+    ted     = _ted_stress_signal(macro)
 
     bei     = _breakeven_roc(macro)
     cpi     = _cpi_momentum(macro)
 
-    # Composite duration (weighted z-score)
     dur_z = (
         config.W_DURATION_2S10S   * c2s10s
         + config.W_DURATION_10Y3M * c10y3m
@@ -215,7 +219,6 @@ def compute_all_macro(macro: pd.DataFrame) -> pd.DataFrame:
         + config.W_DURATION_ISM     * ism
     )
 
-    # Composite credit
     credit_z = (
         config.W_CREDIT_HYOAS  * hyoas
         + config.W_CREDIT_IGMOM  * igmom
@@ -224,7 +227,6 @@ def compute_all_macro(macro: pd.DataFrame) -> pd.DataFrame:
         + config.W_CREDIT_TED   * ted
     )
 
-    # Composite inflation
     infl_z = (
         config.W_INFLATION_BEI * bei
         + config.W_INFLATION_CPI * cpi
