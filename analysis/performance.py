@@ -69,8 +69,8 @@ def plot_results(results: dict, save_path: str = None):
     fig, axes = plt.subplots(4, 1, figsize=(14, 18), gridspec_kw={"height_ratios": [3, 2, 2, 2]})
     fig.suptitle("Bond Rotation Strategy — Backtest Results", fontsize=14, fontweight="bold")
 
-    nav    = results["nav"]
-    nav_bm = results["nav_bm"]
+    nav    = results["nav"] * 100_000
+    nav_bm = results["nav_bm"] * 100_000
     ret    = results["daily_returns"]
     ret_bm = results["daily_returns_bm"]
     w      = results["weights"]
@@ -79,7 +79,8 @@ def plot_results(results: dict, save_path: str = None):
     ax = axes[0]
     ax.plot(nav.index,    nav,    label="Strategy",       linewidth=1.5)
     ax.plot(nav_bm.index, nav_bm, label="Equal-Weight BM",linewidth=1.2, alpha=0.7, linestyle="--")
-    ax.set_ylabel("NAV (start = 1.0)")
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+    ax.set_ylabel("Portfolio Value (start = $100,000)")
     ax.set_title("Cumulative NAV")
     ax.legend()
     ax.grid(True, alpha=0.3)
