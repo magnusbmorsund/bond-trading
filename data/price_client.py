@@ -72,7 +72,7 @@ def fetch_prices(tickers: list = None, start: str = "2000-01-01", force: bool = 
         if _price_is_fresh(cached.index[-1]):
             return cached
 
-    raw    = yf.download(tickers, start=start, auto_adjust=True, progress=False, show_errors=False)
+    raw    = yf.download(tickers, start=start, auto_adjust=True, progress=False)
     prices = raw["Close"]
     _sanity_check_prices(prices)
     prices.to_csv(path)
@@ -90,14 +90,9 @@ def fetch_vix(start: str = "2000-01-01", force: bool = False) -> pd.Series:
         if _price_is_fresh(cached.index[-1]):
             return cached
 
-    raw = yf.download("^VIX", start=start, auto_adjust=True, progress=False, show_errors=False)
+    raw = yf.download("^VIX", start=start, auto_adjust=True, progress=False)
     vix = raw["Close"].squeeze()
     vix.name = "vix"
     vix.to_csv(path, header=True)
     logger.info("Fetched VIX  (%d trading days)", len(vix))
     return vix
-
-
-def compute_returns(prices: pd.DataFrame) -> pd.DataFrame:
-    """Daily log returns."""
-    return prices.apply(lambda col: col.dropna().pct_change()).reindex(prices.index)

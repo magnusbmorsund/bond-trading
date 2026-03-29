@@ -5,13 +5,14 @@ Splits data 70/30 (train/test). Optimises Sharpe on the training window,
 then evaluates best params on the held-out test window.
 
 Usage:
-    python optimize.py [--trials N]   (default 300)
+    python optimize.py [--trials N] [--v2]   (default 300 trials, v1 strategy)
 """
 import argparse
 import warnings
 import logging
 import json
 import os
+import importlib
 
 import optuna
 import pandas as pd
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Parameter space
+# Parameter spaces
 # ---------------------------------------------------------------------------
 
 PARAM_SPACE = {
@@ -74,9 +75,17 @@ PARAM_SPACE = {
     "W_INFLATION_CPI":    ("float", 0.20, 0.80, 0.10),
 }
 
-BEST_PARAMS_PATH = os.path.join(os.path.dirname(__file__), "best_params.json")
+# Additional parameters only in v2 space
+V2_PARAM_ADDITIONS = {
+    "MAX_EQUITY_ALLOC":      ("float", 0.00, 0.30, 0.05),
+    "MAX_REALESTATE_ALLOC":  ("float", 0.00, 0.15, 0.05),
+    "W_COMMODITY_USD":       ("float", 0.00, 0.50, 0.05),
+    "VTIP_DURATION_SCALE":   ("float", 0.10, 1.50, 0.10),
+}
 
-# Annualised return target used in the objective penalty
+BEST_PARAMS_PATH    = os.path.join(os.path.dirname(__file__), "best_params.json")
+BEST_PARAMS_V2_PATH = os.path.join(os.path.dirname(__file__), "best_params_v2.json")
+
 _RETURN_TARGET = 0.10
 
 
@@ -84,21 +93,18 @@ _RETURN_TARGET = 0.10
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _apply_params(params: dict):
-    """Monkey-patch config module so signals/portfolio pick up new values."""
+def _apply_params(params: dict, cfg):
     for k, v in params.items():
-        setattr(config, k, v)
+        setattr(cfg, k, v)
 
 
-def _restore_defaults():
-    """Restore config to module defaults (re-import)."""
-    import importlib
-    importlib.reload(config)
+def _restore_defaults(cfg):
+    importlib.reload(cfg)
 
 
-def _suggest_params(trial) -> dict:
+def _suggest_params(trial, param_space: dict) -> dict:
     params = {}
-    for name, spec in PARAM_SPACE.items():
+    for name, spec in param_space.items():
         kind = spec[0]
         if kind == "int":
             _, lo, hi, step = spec
@@ -109,10 +115,9 @@ def _suggest_params(trial) -> dict:
     return params
 
 
-def _run_on_slice(macro: pd.DataFrame, prices: pd.DataFrame) -> dict | None:
-    """Run backtest on a data slice; return None on failure."""
+def _run_on_slice(run_fn, macro: pd.DataFrame, prices: pd.DataFrame):
     try:
-        return run(macro, prices)
+        return run_fn(macro, prices)
     except Exception as exc:
         logger.debug("Trial backtest failed: %s", exc)
         return None
@@ -122,12 +127,12 @@ def _run_on_slice(macro: pd.DataFrame, prices: pd.DataFrame) -> dict | None:
 # Objective
 # ---------------------------------------------------------------------------
 
-def make_objective(macro_train: pd.DataFrame, prices_train: pd.DataFrame):
+def make_objective(macro_train, prices_train, run_fn, cfg, param_space):
     def objective(trial):
-        params = _suggest_params(trial)
-        _apply_params(params)
+        params = _suggest_params(trial, param_space)
+        _apply_params(params, cfg)
 
-        results = _run_on_slice(macro_train, prices_train)
+        results = _run_on_slice(run_fn, macro_train, prices_train)
         if results is None or len(results["daily_returns"].dropna()) < 252:
             return -10.0
 
@@ -139,11 +144,8 @@ def make_objective(macro_train: pd.DataFrame, prices_train: pd.DataFrame):
         n       = len(ret)
         ann_ret = float(nav.iloc[-1] ** (252 / n) - 1)
 
-        # Heavy penalty above 10% max drawdown
         dd_penalty     = max(0.0, abs(mdd) - 0.10) * 20.0
-        # Penalise returns below 10% annualised target
         return_penalty = max(0.0, _RETURN_TARGET - ann_ret) * 4.0
-        # Penalise worst single month below -4%
         monthly_ret    = (1 + ret).resample("ME").prod() - 1
         wm_penalty     = max(0.0, -0.04 - float(monthly_ret.min())) * 8.0
 
@@ -156,82 +158,91 @@ def make_objective(macro_train: pd.DataFrame, prices_train: pd.DataFrame):
 # Main
 # ---------------------------------------------------------------------------
 
-def run_optimization(n_trials: int = 300):
-    logger.info("Loading data for optimization...")
-    macro, prices = load_all()
+def run_optimization(n_trials: int = 300, v2: bool = False):
+    if v2:
+        import config_v2 as cfg_mod
+        from data.pipeline_v2    import load_all as _load_all
+        from strategy_v2.backtest import run as _run
+        param_space = {**PARAM_SPACE, **V2_PARAM_ADDITIONS}
+        best_path   = BEST_PARAMS_V2_PATH
+        label       = "V2"
+    else:
+        cfg_mod     = config
+        _load_all   = load_all
+        _run        = run
+        param_space = PARAM_SPACE
+        best_path   = BEST_PARAMS_PATH
+        label       = "V1"
 
-    # ── Train / test split ─────────────────────────────────────────────────
+    logger.info("Loading data for %s optimization...", label)
+    macro, prices = _load_all()
+
     split = int(len(macro) * 0.70)
-    macro_train,  prices_train  = macro.iloc[:split],  prices.iloc[:split]
-    macro_test,   prices_test   = macro.iloc[split:],  prices.iloc[split:]
+    macro_train, prices_train = macro.iloc[:split],  prices.iloc[:split]
+    macro_test,  prices_test  = macro.iloc[split:],  prices.iloc[split:]
 
     logger.info(
         "Train: %s → %s  |  Test: %s → %s",
         macro_train.index[0].date(), macro_train.index[-1].date(),
         macro_test.index[0].date(),  macro_test.index[-1].date(),
     )
-    print(f"Train: {macro_train.index[0].date()} → {macro_train.index[-1].date()}")
-    print(f"Test : {macro_test.index[0].date()}  → {macro_test.index[-1].date()}")
-    print(f"Running {n_trials} Optuna trials...\n")
+    print(f"[{label}] Train: {macro_train.index[0].date()} → {macro_train.index[-1].date()}")
+    print(f"[{label}] Test : {macro_test.index[0].date()}  → {macro_test.index[-1].date()}")
+    print(f"Running {n_trials} Optuna trials ({label})...\n")
 
-    # ── Optimise ───────────────────────────────────────────────────────────
     study = optuna.create_study(
         direction="maximize",
         sampler=optuna.samplers.TPESampler(seed=42),
     )
     study.optimize(
-        make_objective(macro_train, prices_train),
+        make_objective(macro_train, prices_train, _run, cfg_mod, param_space),
         n_trials=n_trials,
         show_progress_bar=True,
     )
 
     best_params = study.best_params
     best_val    = study.best_value
-    print(f"\nBest train objective (Sharpe - penalty): {best_val:.3f}")
-    logger.info("Optimization complete — best objective: %.3f", best_val)
+    print(f"\nBest train objective ({label}): {best_val:.3f}")
 
-    # ── Evaluate on test set ───────────────────────────────────────────────
-    _apply_params(best_params)
-    res_train = run(macro_train, prices_train)
-    res_test  = run(macro_test,  prices_test)
-    _restore_defaults()
+    _apply_params(best_params, cfg_mod)
+    res_train = _run(macro_train, prices_train)
+    res_test  = _run(macro_test,  prices_test)
+    _restore_defaults(cfg_mod)
 
     s_train = summary(res_train["daily_returns"], res_train["nav"], "Train")
     s_test  = summary(res_test["daily_returns"],  res_test["nav"],  "Test (OOS)")
 
-    tbl = pd.concat([s_train, s_test], axis=1)
     print("\n" + "=" * 52)
-    print("OPTIMISED STRATEGY — TRAIN vs OUT-OF-SAMPLE")
+    print(f"OPTIMISED {label} — TRAIN vs OUT-OF-SAMPLE")
     print("=" * 52)
-    print(tbl.to_string())
+    print(pd.concat([s_train, s_test], axis=1).to_string())
     print("=" * 52)
 
-    # ── Baseline comparison ────────────────────────────────────────────────
-    _restore_defaults()
-    res_base_test = run(macro_test, prices_test)
-    s_base = summary(res_base_test["daily_returns"], res_base_test["nav"], "Default (OOS)")
-    print("\nDefault params on same test period:")
+    _restore_defaults(cfg_mod)
+    res_base = _run(macro_test, prices_test)
+    s_base   = summary(res_base["daily_returns"], res_base["nav"], f"Default {label} (OOS)")
+    print(f"\nDefault {label} params on same test period:")
     print(pd.concat([s_test, s_base], axis=1).to_string())
 
-    # ── Print and save best params ─────────────────────────────────────────
     print("\nBest parameters:")
     for k, v in best_params.items():
-        default_val = getattr(config, k)
-        print(f"  {k:<22s} {v!s:>8}   (default: {default_val})")
+        default_val = getattr(cfg_mod, k, "N/A")
+        print(f"  {k:<26s} {v!s:>8}   (default: {default_val})")
 
-    with open(BEST_PARAMS_PATH, "w") as f:
+    with open(best_path, "w") as f:
         json.dump(best_params, f, indent=2)
-    logger.info("Best params saved → %s", BEST_PARAMS_PATH)
-    print(f"\nSaved → {BEST_PARAMS_PATH}")
+    logger.info("Best %s params saved → %s", label, best_path)
+    print(f"\nSaved → {best_path}")
 
     return best_params
 
 
-def load_best_params() -> dict:
-    """Load previously saved best params (for use in main.py)."""
-    if not os.path.exists(BEST_PARAMS_PATH):
-        raise FileNotFoundError("No best_params.json found — run optimize first.")
-    with open(BEST_PARAMS_PATH) as f:
+def load_best_params(suffix: str = "") -> dict:
+    """Load saved best params. suffix='' for v1, '_v2' for v2."""
+    path = os.path.join(os.path.dirname(__file__), f"best_params{suffix}.json")
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"No {os.path.basename(path)} found — run optimize first.")
+    with open(path) as f:
         return json.load(f)
 
 
@@ -240,5 +251,6 @@ if __name__ == "__main__":
     _logging.basicConfig(level=_logging.INFO, format="%(levelname)s  %(message)s")
     parser = argparse.ArgumentParser()
     parser.add_argument("--trials", type=int, default=300)
+    parser.add_argument("--v2", action="store_true", help="Optimise v2 strategy")
     args = parser.parse_args()
-    run_optimization(n_trials=args.trials)
+    run_optimization(n_trials=args.trials, v2=args.v2)

@@ -263,6 +263,107 @@ def plot_annual_allocations(results: dict, save_path: str = None, top_n: int = 5
     plt.close()
 
 
+def plot_comparison(results_v1: dict, results_v2: dict, save_path: str = None):
+    """
+    4-panel comparison chart: V1 vs V2 vs equal-weight benchmark.
+      Panel 1: Cumulative NAV
+      Panel 2: Drawdown
+      Panel 3: Rolling 12-month Sharpe
+      Panel 4: Summary stats table
+    """
+    fig, axes = plt.subplots(4, 1, figsize=(14, 20),
+                             gridspec_kw={"height_ratios": [3, 2, 2, 2]})
+    fig.suptitle("Strategy Comparison — V1 vs V2 (2005–2026)", fontsize=14, fontweight="bold")
+
+    nav1    = results_v1["nav"] * 100_000
+    nav2    = results_v2["nav"] * 100_000
+    nav_bm  = results_v1["nav_bm"] * 100_000   # same benchmark for both
+    ret1    = results_v1["daily_returns"]
+    ret2    = results_v2["daily_returns"]
+    ret_bm  = results_v1["daily_returns_bm"]
+
+    C1, C2, CBM = "#2196F3", "#FF5722", "#9E9E9E"
+
+    # ── Panel 1: NAV ──────────────────────────────────────────────────────
+    ax = axes[0]
+    ax.plot(nav1.index,   nav1,   label="V1",                color=C1,  linewidth=1.8)
+    ax.plot(nav2.index,   nav2,   label="V2",                color=C2,  linewidth=1.8)
+    ax.plot(nav_bm.index, nav_bm, label="Equal-Weight BM",   color=CBM, linewidth=1.0, linestyle="--", alpha=0.7)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+    ax.set_ylabel("Portfolio Value (start = $100,000)")
+    ax.set_title("Cumulative NAV")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # ── Panel 2: Drawdown ─────────────────────────────────────────────────
+    ax = axes[1]
+    ax.fill_between(nav1.index,   drawdown_series(nav1),   0, alpha=0.4, label="V1",              color=C1)
+    ax.fill_between(nav2.index,   drawdown_series(nav2),   0, alpha=0.4, label="V2",              color=C2)
+    ax.fill_between(nav_bm.index, drawdown_series(nav_bm), 0, alpha=0.2, label="Equal-Weight BM", color=CBM)
+    ax.set_ylabel("Drawdown")
+    ax.set_title("Drawdown")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # ── Panel 3: Rolling 12m Sharpe ────────────────────────────────────────
+    ax = axes[2]
+    roll1  = ret1.rolling(252).apply(lambda x: sharpe(x))
+    roll2  = ret2.rolling(252).apply(lambda x: sharpe(x))
+    rollbm = ret_bm.rolling(252).apply(lambda x: sharpe(x))
+    ax.plot(roll1.index,  roll1,  label="V1",              color=C1,  linewidth=1.5)
+    ax.plot(roll2.index,  roll2,  label="V2",              color=C2,  linewidth=1.5)
+    ax.plot(rollbm.index, rollbm, label="Equal-Weight BM", color=CBM, linewidth=1.0, linestyle="--", alpha=0.7)
+    ax.axhline(0, color="black", linewidth=0.8, linestyle=":")
+    ax.set_ylabel("Sharpe (12m rolling)")
+    ax.set_title("Rolling 12-Month Sharpe Ratio")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # ── Panel 4: Summary stats table ───────────────────────────────────────
+    ax = axes[3]
+    ax.axis("off")
+
+    s1 = summary(ret1,   results_v1["nav"], "V1")
+    s2 = summary(ret2,   results_v2["nav"], "V2")
+    sbm = summary(ret_bm, results_v1["nav_bm"], "EW Benchmark")
+
+    metrics = ["Ann. Return", "Ann. Volatility", "Sharpe Ratio",
+               "Max Drawdown", "Calmar Ratio", "Worst Month", "Best Month"]
+    col_labels = ["Metric", "V1", "V2", "EW Benchmark"]
+    table_data = [[m, s1[m], s2[m], sbm[m]] for m in metrics]
+
+    tbl = ax.table(cellText=table_data, colLabels=col_labels, cellLoc="center", loc="center")
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(11)
+    tbl.scale(1, 2.2)
+
+    # Header row
+    for col in range(4):
+        tbl[0, col].set_facecolor("#343a40")
+        tbl[0, col].set_text_props(color="white", fontweight="bold")
+    # V1 column blue tint, V2 column orange tint
+    for row in range(1, len(metrics) + 1):
+        tbl[row, 0].set_facecolor("#f5f5f5")
+        tbl[row, 1].set_facecolor("#E3F2FD")
+        tbl[row, 2].set_facecolor("#FBE9E7")
+        tbl[row, 3].set_facecolor("#F5F5F5")
+
+    ax.set_title("Summary Statistics", fontsize=11, fontweight="bold", pad=12)
+
+    for ax in axes[:3]:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+        ax.xaxis.set_major_locator(mdates.YearLocator(2))
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
+        print(f"  Saved chart → {save_path}")
+    else:
+        plt.show()
+    plt.close()
+
+
 def print_summary_table(results: dict):
     ret    = results["daily_returns"]
     nav    = results["nav"]

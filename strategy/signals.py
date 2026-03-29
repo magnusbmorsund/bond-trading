@@ -146,7 +146,7 @@ def _fed_qt_signal(macro: pd.DataFrame) -> pd.Series:
     Weekly series → forward-filled to daily.
     """
     if "fed_assets" not in macro.columns:
-        logger.debug("fed_assets not in macro — fed_qt_signal set to 0")
+        logger.warning("fed_assets not in macro — fed_qt_signal set to 0 (Fed QT/QE signal missing)")
         return pd.Series(0.0, index=macro.index, name="fed_qt_signal")
     fa = macro["fed_assets"].ffill()
     roc = fa.pct_change(63)     # 3-month growth rate
@@ -161,7 +161,7 @@ def _indpro_signal(macro: pd.DataFrame) -> pd.Series:
     Monthly series → forward-filled to daily.
     """
     if "indpro" not in macro.columns:
-        logger.debug("indpro not in macro — indpro_signal set to 0")
+        logger.warning("indpro not in macro — indpro_signal set to 0 (growth proxy missing)")
         return pd.Series(0.0, index=macro.index, name="indpro_signal")
     ip = macro["indpro"].ffill()
     roc = ip.pct_change(63)
@@ -176,7 +176,7 @@ def _ted_stress_signal(macro: pd.DataFrame) -> pd.Series:
     Weekly series → forward-filled to daily.
     """
     if "ted_spread" not in macro.columns:
-        logger.debug("ted_spread not in macro — ted_stress_signal set to 0")
+        logger.info("ted_spread not in macro — ted_stress_signal set to 0 (TEDRATE discontinued 2023)")
         return pd.Series(0.0, index=macro.index, name="ted_stress_signal")
     ted = macro["ted_spread"].ffill()
     return (-_zscore(ted, config.LOOKBACK_SIGNAL)).rename("ted_stress_signal")

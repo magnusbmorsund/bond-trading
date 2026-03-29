@@ -13,9 +13,6 @@ from config import FRED_API_KEY, FRED_SERIES, DATA_DIR
 
 logger = logging.getLogger(__name__)
 
-# Monthly series are only published once a month — treat as fresh for 35 days
-_MONTHLY_SERIES     = {"CPIAUCSL", "FEDFUNDS", "UNRATE", "INDPRO"}
-_WEEKLY_SERIES      = {"WALCL", "TEDRATE"}
 _DAILY_STALE_DAYS   = 2
 _MONTHLY_STALE_DAYS = 35
 _WEEKLY_STALE_DAYS  = 10
@@ -28,17 +25,26 @@ def _cache_path(series_id: str) -> str:
     return os.path.join(DATA_DIR, f"fred_{series_id}.csv")
 
 
-def _stale_limit(series_id: str) -> int:
-    if series_id in _MONTHLY_SERIES:
-        return _MONTHLY_STALE_DAYS
-    if series_id in _WEEKLY_SERIES:
-        return _WEEKLY_STALE_DAYS
+def _stale_limit(cached: pd.Series) -> int:
+    """
+    Infer cache TTL from the actual observation cadence of the cached series.
+    Uses the median gap between the last 10 observations to detect monthly/weekly/daily.
+    This auto-handles any FRED series regardless of frequency.
+    """
+    recent = cached.dropna()
+    if len(recent) >= 2:
+        gaps = recent.index.to_series().diff().dropna().dt.days
+        median_gap = float(gaps.tail(10).median())
+        if median_gap >= 20:
+            return _MONTHLY_STALE_DAYS
+        if median_gap >= 5:
+            return _WEEKLY_STALE_DAYS
     return _DAILY_STALE_DAYS
 
 
 def _is_fresh(series_id: str, cached: pd.Series) -> bool:
     age = (pd.Timestamp.today() - cached.index[-1]).days
-    return age <= _stale_limit(series_id)
+    return age <= _stale_limit(cached)
 
 
 def _fetch_from_fred(series_id: str, start: str) -> pd.Series:
