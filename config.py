@@ -12,10 +12,9 @@ INFLATION_ETF = "TIP"
 CREDIT_ETFS   = ["LQD", "HYG", "ANGL", "SJNK", "BKLN", "EMB", "PFF"]
 # Commodity / materials basket — momentum-gated, inverse-vol weighted
 # GLD:  monetary metal — real yields falling + inflation rising
-# PDBC: diversified commodities (energy+metals+ag) — growth/inflation cycles, corr 0.27 to GLD
+# PDBC: diversified commodities (energy+metals+ag, incl. base metals) — growth/inflation cycles, corr 0.27 to GLD
 # DBA:  agriculture — food inflation, weather, lowest GLD corr (0.16), low vol (13%)
-# DBB:  base metals (Cu/Zn/Al) — industrial/construction demand cycles, corr 0.29
-HEDGE_ETFS    = ["GLD", "PDBC", "DBA", "DBB"]
+HEDGE_ETFS    = ["GLD", "PDBC", "DBA"]
 
 ETF_UNIVERSE  = DURATION_ETFS + [INFLATION_ETF] + CREDIT_ETFS + HEDGE_ETFS
 

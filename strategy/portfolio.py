@@ -3,12 +3,11 @@ Convert composite signals into monthly target weights.
 
 Five allocation buckets (always sum to 1.0):
 
-  1. COMMODITIES (GLD, PDBC, DBA, DBB)
+  1. COMMODITIES (GLD, PDBC, DBA)
      Primary alpha source — momentum-gated, inverse-vol weighted within bucket.
      GLD:  monetary metal — real yields falling + inflation rising
-     PDBC: diversified (energy+metals+ag) — growth/inflation cycles, corr 0.27 to GLD
+     PDBC: diversified (energy+metals+ag, incl. base metals) — growth/inflation cycles, corr 0.27 to GLD
      DBA:  agriculture — food inflation, lowest GLD correlation (0.16), low vol
-     DBB:  base metals — industrial/construction demand, corr 0.29 to GLD
      Only holds an ETF when its 12-1 month momentum is positive.
      Fixed income is the defensive "cash pool".
 
@@ -51,7 +50,7 @@ def _commodity_weights(
       - Total budget grows smoothly from 0 to MAX_ALT_ALLOC with signal strength.
       - Only hold an ETF when its 12-1 month momentum is positive (hard gate).
       - Within the budget, weight by inverse-vol (lower-vol = larger weight).
-        GLD naturally dominates (vol ~16%) vs PDBC (~18%), DBB (~20%), DBA (~13%).
+        GLD naturally dominates (vol ~16%) vs PDBC (~18%), DBA (~13%).
     """
     # Combined commodity signal: inflation-bullish + real-yield-falling
     comm_signal = 0.5 * inflation_z + 0.5 * duration_z
