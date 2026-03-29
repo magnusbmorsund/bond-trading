@@ -298,12 +298,22 @@ def build_weight_series(
             continue
         if mom_monthly.loc[date].isna().all():
             continue
+        if pd.notna(row["vix_raw"]):
+            vix_raw = row["vix_raw"]
+        else:
+            logger.warning("VIX missing on %s — using neutral default (20.0)", date.date())
+            vix_raw = 20.0
+        if "usd_z" in row.index and pd.notna(row["usd_z"]):
+            usd_z = float(row["usd_z"])
+        else:
+            logger.debug("USD signal missing on %s — using neutral (0.0)", date.date())
+            usd_z = 0.0
         w = build_weights(
             duration_z  = row["duration_z"],
             credit_z    = row["credit_z"],
             inflation_z = row["inflation_z"],
-            usd_z       = float(row["usd_z"]) if "usd_z" in row.index and pd.notna(row["usd_z"]) else 0.0,
-            vix_raw     = row["vix_raw"] if pd.notna(row["vix_raw"]) else 20.0,
+            usd_z       = usd_z,
+            vix_raw     = vix_raw,
             mom         = mom_monthly.loc[date],
             vol         = vol_monthly.loc[date],
         )

@@ -24,7 +24,7 @@ V1 has the edge on drawdown control (Calmar 3.27). V2 has the edge on raw return
 |-------------|----------------------------------------|-------------------|------|
 | Duration     | TLT, IEF, SHY                          | —                 | Defensive anchor / cash pool |
 | Inflation    | TIP                                    | VTIP              | Inflation hedge (V2 splits by duration risk) |
-| Credit       | LQD, HYG, ANGL, SJNK, BKLN, EMB, PFF | —                 | Spread income |
+| Credit       | LQD, HYG, ANGL, SJNK, BKLN, EMB, PFF  | —                 | Spread income |
 | Commodities  | GLD, PDBC, DBA                         | SLV               | Primary alpha source |
 | Real Assets  | —                                      | VNQ               | V2 REIT satellite |
 | Equity       | —                                      | SPY               | V2 growth regime satellite |

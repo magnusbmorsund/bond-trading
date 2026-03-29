@@ -248,9 +248,10 @@ def compute_all_macro(macro: pd.DataFrame) -> pd.DataFrame:
 
 def momentum(prices: pd.DataFrame) -> pd.DataFrame:
     """12-1 month cross-sectional momentum. Positive → include."""
-    past   = prices.shift(config.MOMENTUM_SKIP)
-    longer = prices.shift(config.MOMENTUM_WINDOW)
-    return past / longer - 1
+    past        = prices.shift(config.MOMENTUM_SKIP)
+    longer      = prices.shift(config.MOMENTUM_WINDOW)
+    longer_safe = longer.replace(0, float("nan"))   # avoid div-by-zero for zero-price rows
+    return past / longer_safe - 1
 
 
 def rolling_vol(prices: pd.DataFrame) -> pd.DataFrame:

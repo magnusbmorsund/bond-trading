@@ -200,11 +200,16 @@ def build_weight_series(
             continue
         if mom_monthly.loc[date].isna().all():
             continue
+        if pd.notna(row["vix_raw"]):
+            vix_raw = row["vix_raw"]
+        else:
+            logger.warning("VIX missing on %s — using neutral default (20.0)", date.date())
+            vix_raw = 20.0
         w = build_weights(
             duration_z  = row["duration_z"],
             credit_z    = row["credit_z"],
             inflation_z = row["inflation_z"],
-            vix_raw     = row["vix_raw"] if pd.notna(row["vix_raw"]) else 20.0,
+            vix_raw     = vix_raw,
             mom         = mom_monthly.loc[date],
             vol         = vol_monthly.loc[date],
         )

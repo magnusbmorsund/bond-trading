@@ -57,14 +57,12 @@ def _sanity_check_prices(prices: pd.DataFrame) -> None:
             )
 
 
-def fetch_prices(tickers: list = None, start: str = "2000-01-01", force: bool = False) -> pd.DataFrame:
+def fetch_prices(start: str = "2000-01-01", force: bool = False) -> pd.DataFrame:
     """
     Return adjusted close prices for all ETFs as a DataFrame.
     Uses local cache; refreshes if stale (>1 trading day old).
     """
-    if tickers is None:
-        tickers = ETF_UNIVERSE
-
+    tickers = ETF_UNIVERSE
     path = _cache_path()
 
     if not force and os.path.exists(path):
