@@ -65,8 +65,20 @@ def summary(returns: pd.Series, nav: pd.Series, label: str = "Strategy") -> pd.S
 # Plotting
 # ---------------------------------------------------------------------------
 
+def _annual_stats(returns: pd.Series, nav: pd.Series) -> pd.DataFrame:
+    """Year-by-year Ann. Return, Max DD, Volatility."""
+    rows = []
+    for year, grp in returns.groupby(returns.index.year):
+        nav_yr  = nav.loc[grp.index]
+        ann_ret = (1 + grp).prod() - 1
+        ann_vol = grp.std() * np.sqrt(252)
+        mdd     = max_drawdown(nav_yr)
+        rows.append({"Year": year, "Return": ann_ret, "Max DD": mdd, "Volatility": ann_vol})
+    return pd.DataFrame(rows).set_index("Year")
+
+
 def plot_results(results: dict, save_path: str = None):
-    fig, axes = plt.subplots(4, 1, figsize=(14, 18), gridspec_kw={"height_ratios": [3, 2, 2, 2]})
+    fig, axes = plt.subplots(5, 1, figsize=(14, 24), gridspec_kw={"height_ratios": [3, 2, 2, 2, 3]})
     fig.suptitle("Bond Rotation Strategy — Backtest Results", fontsize=14, fontweight="bold")
 
     nav    = results["nav"] * 100_000
@@ -120,10 +132,57 @@ def plot_results(results: dict, save_path: str = None):
     ax.legend()
     ax.grid(True, alpha=0.3)
 
-    for ax in axes:
+    for ax in axes[:4]:
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
         ax.xaxis.set_major_locator(mdates.YearLocator(2))
         plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+
+    # ── Panel 5: Year-by-year stats table ─────────────────────────────────
+    ax = axes[4]
+    ax.axis("off")
+    ax.set_title("Annual Statistics — Strategy vs Equal-Weight Benchmark", pad=10)
+
+    strat = _annual_stats(ret, results["nav"])
+    bench = _annual_stats(ret_bm, results["nav_bm"])
+
+    years = sorted(set(strat.index) | set(bench.index))
+    col_labels = ["Year", "Return", "Max DD", "Vol", "BM Return", "BM Max DD", "BM Vol"]
+    table_data = []
+    for yr in years:
+        s = strat.loc[yr]  if yr in strat.index  else pd.Series({"Return": np.nan, "Max DD": np.nan, "Volatility": np.nan})
+        b = bench.loc[yr]  if yr in bench.index  else pd.Series({"Return": np.nan, "Max DD": np.nan, "Volatility": np.nan})
+        table_data.append([
+            str(yr),
+            f"{s['Return']:+.1%}", f"{s['Max DD']:.1%}", f"{s['Volatility']:.1%}",
+            f"{b['Return']:+.1%}", f"{b['Max DD']:.1%}", f"{b['Volatility']:.1%}",
+        ])
+
+    tbl = ax.table(
+        cellText=table_data,
+        colLabels=col_labels,
+        cellLoc="center",
+        loc="center",
+    )
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(9)
+    tbl.scale(1, 1.4)
+
+    # Colour rows: strategy return green if positive, red if negative
+    for i, row in enumerate(table_data):
+        ret_val = strat.loc[years[i], "Return"] if years[i] in strat.index else 0
+        bm_val  = bench.loc[years[i], "Return"] if years[i] in bench.index else 0
+        row_idx = i + 1  # +1 for header
+        strat_color = "#d4edda" if ret_val >= 0 else "#f8d7da"
+        bench_color = "#d4edda" if bm_val  >= 0 else "#f8d7da"
+        for col in range(4):
+            tbl[row_idx, col].set_facecolor(strat_color)
+        for col in range(4, 7):
+            tbl[row_idx, col].set_facecolor(bench_color)
+
+    # Bold header
+    for col in range(len(col_labels)):
+        tbl[0, col].set_facecolor("#343a40")
+        tbl[0, col].set_text_props(color="white", fontweight="bold")
 
     plt.tight_layout()
 
