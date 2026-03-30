@@ -1,26 +1,28 @@
 """
-Vectorised backtest engine with volatility targeting.
+v3 backtest engine — wired to config_v3 and strategy_v3 modules.
+Shared logic lives in strategy/backtest_core.py.
 
-Weights are set at each month-end close, effective the next trading day.
-Volatility targeting scales daily exposure so that realised portfolio vol
-tracks config.VOL_TARGET — this is the main lever for hitting a return target.
+v3 difference: trailing stops apply to HEDGE_ETFS + MANAGED_FUTURES_ETFS.
 """
 import logging
 import pandas as pd
 import numpy as np
-import config
+import config_v3 as config
 
-from strategy.signals    import compute_all_macro, momentum, rolling_vol, resample_to_month_end
-from strategy.portfolio  import build_weight_series
+from strategy_v3.signals    import compute_all_macro, momentum, rolling_vol, resample_to_month_end
+from strategy_v3.portfolio  import build_weight_series
 from strategy.backtest_core import vol_scale, drawdown_overlay, apply_trailing_stops, effective_weights_core
 
 logger = logging.getLogger(__name__)
+
+# v3: stops apply to both commodities and managed futures
+_STOP_ETFS = config.HEDGE_ETFS + config.MANAGED_FUTURES_ETFS
 
 
 def _apply_trailing_stops(daily_w: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
     return apply_trailing_stops(
         daily_w, prices,
-        stop_etfs=config.HEDGE_ETFS,
+        stop_etfs=_STOP_ETFS,
         stop_pct=config.TRAILING_STOP_PCT,
         stop_window=config.TRAILING_STOP_WINDOW,
     )
@@ -29,19 +31,17 @@ def _apply_trailing_stops(daily_w: pd.DataFrame, prices: pd.DataFrame) -> pd.Dat
 def effective_weights(signal_weights: pd.Series, recent_prices: pd.DataFrame) -> pd.Series:
     return effective_weights_core(
         signal_weights, recent_prices,
-        stop_etfs=config.HEDGE_ETFS,
+        stop_etfs=_STOP_ETFS,
         stop_pct=config.TRAILING_STOP_PCT,
         stop_window=config.TRAILING_STOP_WINDOW,
     )
 
 
 def run(macro: pd.DataFrame, prices: pd.DataFrame) -> dict:
-    # ── 1. Compute daily signals ───────────────────────────────────────────
     macro_signals = compute_all_macro(macro)
     mom_daily     = momentum(prices[config.ETF_UNIVERSE])
     vol_daily     = rolling_vol(prices[config.ETF_UNIVERSE])
 
-    # ── 2. Resample to month-end ───────────────────────────────────────────
     macro_m = resample_to_month_end(macro_signals)
     mom_m   = resample_to_month_end(mom_daily)
     vol_m   = resample_to_month_end(vol_daily)
@@ -49,10 +49,8 @@ def run(macro: pd.DataFrame, prices: pd.DataFrame) -> dict:
     common  = macro_m.index.intersection(mom_m.index).intersection(vol_m.index)
     macro_m, mom_m, vol_m = macro_m.loc[common], mom_m.loc[common], vol_m.loc[common]
 
-    # ── 3. Build monthly target weights ────────────────────────────────────
     weights = build_weight_series(macro_m, mom_m, vol_m)
 
-    # ── 4. Daily returns + trailing stops ─────────────────────────────────
     daily_ret = prices[config.ETF_UNIVERSE].pct_change()
     daily_w   = _apply_trailing_stops(
         weights.reindex(daily_ret.index).ffill().shift(1),
@@ -61,7 +59,6 @@ def run(macro: pd.DataFrame, prices: pd.DataFrame) -> dict:
     raw_daily      = (daily_w * daily_ret).sum(axis=1)
     raw_daily.name = "strategy_raw"
 
-    # ── 5. Vol targeting + drawdown overlay ───────────────────────────────
     cash_rate = macro["fedfunds"] if "fedfunds" in macro.columns else pd.Series(0.0, index=macro.index)
     strategy_daily      = drawdown_overlay(
         vol_scale(raw_daily, config.VOL_TARGET, config.VOL_LOOKBACK, config.MAX_LEVERAGE),
@@ -69,16 +66,12 @@ def run(macro: pd.DataFrame, prices: pd.DataFrame) -> dict:
     )
     strategy_daily.name = "strategy"
 
-    # ── 6. Equal-weight benchmark ──────────────────────────────────────────
     bm_w            = pd.Series(1 / len(config.ETF_UNIVERSE), index=config.ETF_UNIVERSE)
     benchmark_daily = (daily_ret * bm_w).sum(axis=1)
     benchmark_daily.name = "benchmark_ew"
 
-    # ── 7. NAV ─────────────────────────────────────────────────────────────
     nav    = (1 + strategy_daily.fillna(0)).cumprod()
     nav_bm = (1 + benchmark_daily.fillna(0)).cumprod()
-
-    # ── 8. Turnover ────────────────────────────────────────────────────────
     turnover = (weights - weights.shift(1).fillna(0)).abs().sum(axis=1) / 2
 
     return {

@@ -49,6 +49,12 @@ def _fetch_prices_v2(start: str, force: bool = False) -> pd.DataFrame:
     )
     prices = raw["Close"]
 
+    # Ensure all universe ETFs are present (NaN-fill pre-launch / unavailable tickers)
+    for ticker in config.ETF_UNIVERSE:
+        if ticker not in prices.columns:
+            prices[ticker] = np.nan
+            logger.warning("ETF %s unavailable from yfinance — column set to NaN", ticker)
+
     # Sanity check: warn on missing tickers
     missing = set(config.ETF_UNIVERSE) - set(prices.columns)
     if missing:

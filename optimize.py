@@ -6,6 +6,7 @@ then evaluates best params on the held-out test window.
 
 Usage:
     python optimize.py [--trials N] [--v2]   (default 300 trials, v1 strategy)
+    python optimize.py [--trials N] [--v3]   (v3 strategy)
 """
 import argparse
 import warnings
@@ -83,8 +84,25 @@ V2_PARAM_ADDITIONS = {
     "VTIP_DURATION_SCALE":   ("float", 0.10, 1.50, 0.10),
 }
 
+# Additional parameters only in v3 space (extends v2 additions)
+V3_PARAM_ADDITIONS = {
+    "MAX_EQUITY_ALLOC":           ("float", 0.00, 0.30, 0.05),
+    "MAX_REALESTATE_ALLOC":       ("float", 0.00, 0.15, 0.05),
+    "MAX_MANAGED_FUTURES_ALLOC":  ("float", 0.00, 0.20, 0.05),
+    "W_COMMODITY_USD":            ("float", 0.00, 0.50, 0.05),
+    "VTIP_DURATION_SCALE":        ("float", 0.10, 1.50, 0.10),
+    "EDV_DURATION_SCORE":         ("float", 1.50, 4.00, 0.25),
+    "MF_SIGNAL_SCALE":            ("float", 0.10, 1.00, 0.10),
+    "W_CREDIT_IMPULSE":           ("float", 0.05, 0.30, 0.05),
+    "W_CREDIT_VIX_TS":            ("float", 0.00, 0.25, 0.05),
+    "W_GROWTH_ISM":               ("float", 0.10, 0.60, 0.10),
+    "W_GROWTH_INDPRO":            ("float", 0.10, 0.60, 0.10),
+    "W_GROWTH_LABOR":             ("float", 0.10, 0.60, 0.10),
+}
+
 BEST_PARAMS_PATH    = os.path.join(os.path.dirname(__file__), "best_params.json")
 BEST_PARAMS_V2_PATH = os.path.join(os.path.dirname(__file__), "best_params_v2.json")
+BEST_PARAMS_V3_PATH = os.path.join(os.path.dirname(__file__), "best_params_v3.json")
 
 _RETURN_TARGET = 0.10
 
@@ -158,8 +176,15 @@ def make_objective(macro_train, prices_train, run_fn, cfg, param_space):
 # Main
 # ---------------------------------------------------------------------------
 
-def run_optimization(n_trials: int = 300, v2: bool = False):
-    if v2:
+def run_optimization(n_trials: int = 300, v2: bool = False, v3: bool = False):
+    if v3:
+        import config_v3 as cfg_mod
+        from data.pipeline_v3    import load_all as _load_all
+        from strategy_v3.backtest import run as _run
+        param_space = {**PARAM_SPACE, **V3_PARAM_ADDITIONS}
+        best_path   = BEST_PARAMS_V3_PATH
+        label       = "V3"
+    elif v2:
         import config_v2 as cfg_mod
         from data.pipeline_v2    import load_all as _load_all
         from strategy_v2.backtest import run as _run
@@ -252,5 +277,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--trials", type=int, default=300)
     parser.add_argument("--v2", action="store_true", help="Optimise v2 strategy")
+    parser.add_argument("--v3", action="store_true", help="Optimise v3 strategy")
     args = parser.parse_args()
-    run_optimization(n_trials=args.trials, v2=args.v2)
+    run_optimization(n_trials=args.trials, v2=args.v2, v3=args.v3)

@@ -2,12 +2,14 @@
 Bond Rotation Strategy — CLI entry point.
 
 Commands:
-  python main.py fetch                         Fetch / refresh all data
-  python main.py backtest [--best] [--v2]      Backtest (--best uses optimised params)
-  python main.py weights  [--v2]               Current positions for IBKR
-  python main.py optimize [--trials N] [--v2]  Run Optuna optimisation (default 300 trials)
+  python main.py fetch                               Fetch / refresh all data
+  python main.py backtest [--best] [--v2|--v3]       Backtest (--best uses optimised params)
+  python main.py weights  [--v2|--v3]                Current positions for IBKR
+  python main.py optimize [--trials N] [--v2|--v3]   Run Optuna optimisation (default 300 trials)
 
 Add --v2 to any command to run the v2 strategy (SLV, VTIP, VNQ, SPY, USD signal, ISM signal).
+Add --v3 to any command to run the v3 strategy (EDV, JPST, DBMF, MTUM, growth composite,
+  credit impulse, VIX term structure).
 """
 import sys
 import os
@@ -28,9 +30,9 @@ logger = logging.getLogger(__name__)
 # Logging setup
 # ---------------------------------------------------------------------------
 
-def _setup_logging(v2: bool = False):
+def _setup_logging(v2: bool = False, v3: bool = False):
     os.makedirs(config.LOG_DIR, exist_ok=True)
-    suffix   = "_v2" if v2 else ""
+    suffix   = "_v3" if v3 else ("_v2" if v2 else "")
     log_file = os.path.join(config.LOG_DIR, f"strategy{suffix}.log")
 
     fmt    = "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s"
@@ -53,9 +55,13 @@ def _setup_logging(v2: bool = False):
 # Strategy module selector
 # ---------------------------------------------------------------------------
 
-def _get_modules(v2: bool):
-    """Return (cfg, load_all, run, effective_weights) for v1 or v2."""
-    if v2:
+def _get_modules(v2: bool, v3: bool = False):
+    """Return (cfg, load_all, run, effective_weights) for v1, v2, or v3."""
+    if v3:
+        import config_v3 as cfg
+        from data.pipeline_v3    import load_all
+        from strategy_v3.backtest import run, effective_weights
+    elif v2:
         import config_v2 as cfg
         from data.pipeline_v2    import load_all
         from strategy_v2.backtest import run, effective_weights
@@ -82,13 +88,14 @@ def _validate_env(cfg):
         )
 
 
-def _load_best(cfg, v2: bool = False):
+def _load_best(cfg, v2: bool = False, v3: bool = False):
     """Monkey-patch cfg with saved optimised params."""
-    suffix = "_v2" if v2 else ""
+    suffix = "_v3" if v3 else ("_v2" if v2 else "")
     path   = os.path.join(os.path.dirname(__file__), f"best_params{suffix}.json")
     if not os.path.exists(path):
+        flag = "  --v3" if v3 else ("  --v2" if v2 else "")
         raise FileNotFoundError(
-            f"{os.path.basename(path)} not found — run: python main.py optimize{'  --v2' if v2 else ''}"
+            f"{os.path.basename(path)} not found — run: python main.py optimize{flag}"
         )
     with open(path) as f:
         params = json.load(f)
@@ -117,10 +124,10 @@ def _validate_weights(weights: pd.Series, label: str = "weights") -> pd.Series:
 # Commands
 # ---------------------------------------------------------------------------
 
-def cmd_fetch(v2: bool = False):
-    cfg, load_all, _, _ = _get_modules(v2)
+def cmd_fetch(v2: bool = False, v3: bool = False):
+    cfg, load_all, _, _ = _get_modules(v2, v3)
     _validate_env(cfg)
-    label = "v2" if v2 else "v1"
+    label = "v3" if v3 else ("v2" if v2 else "v1")
     logger.info("Force-refreshing all %s data...", label)
     macro, prices = load_all(force=True)
     logger.info(
@@ -130,12 +137,12 @@ def cmd_fetch(v2: bool = False):
     )
 
 
-def cmd_backtest(use_best: bool = False, v2: bool = False):
-    cfg, load_all, run, _ = _get_modules(v2)
-    suffix = "_v2" if v2 else ""
+def cmd_backtest(use_best: bool = False, v2: bool = False, v3: bool = False):
+    cfg, load_all, run, _ = _get_modules(v2, v3)
+    suffix = "_v3" if v3 else ("_v2" if v2 else "")
 
     if use_best:
-        _load_best(cfg, v2=v2)
+        _load_best(cfg, v2=v2, v3=v3)
 
     logger.info("Loading data...")
     macro, prices = load_all()
@@ -158,10 +165,10 @@ def cmd_backtest(use_best: bool = False, v2: bool = False):
     plot_annual_allocations(results, save_path=os.path.join(base, f"annual_allocations{suffix}.png"))
 
 
-def cmd_weights(v2: bool = False):
-    cfg, load_all, run, effective_weights = _get_modules(v2)
+def cmd_weights(v2: bool = False, v3: bool = False):
+    cfg, load_all, run, effective_weights = _get_modules(v2, v3)
 
-    _load_best(cfg, v2=v2)
+    _load_best(cfg, v2=v2, v3=v3)
     logger.info("Loading data...")
     macro, prices = load_all()
 
@@ -173,7 +180,7 @@ def cmd_weights(v2: bool = False):
     eff_w = effective_weights(signal_w, prices[cfg.ETF_UNIVERSE])
     eff_w = _validate_weights(eff_w, label="effective weights")
 
-    label = " V2" if v2 else ""
+    label = " V3" if v3 else (" V2" if v2 else "")
     print(f"\n{'='*45}")
     print(f"SIGNAL WEIGHTS{label}  (model, as of {as_of})")
     print(f"{'='*45}")
@@ -215,9 +222,9 @@ def cmd_compare():
     plot_comparison(results_v1, results_v2, save_path=save_path)
 
 
-def cmd_optimize(n_trials: int = 300, v2: bool = False):
+def cmd_optimize(n_trials: int = 300, v2: bool = False, v3: bool = False):
     from optimize import run_optimization
-    run_optimization(n_trials=n_trials, v2=v2)
+    run_optimization(n_trials=n_trials, v2=v2, v3=v3)
 
 
 def main():
@@ -227,35 +234,40 @@ def main():
 
     p_fetch = sub.add_parser("fetch")
     p_fetch.add_argument("--v2", action="store_true", help="Use v2 strategy")
+    p_fetch.add_argument("--v3", action="store_true", help="Use v3 strategy")
 
     p_bt = sub.add_parser("backtest")
     p_bt.add_argument("--best", action="store_true", help="Use optimised params")
     p_bt.add_argument("--v2",   action="store_true", help="Use v2 strategy")
+    p_bt.add_argument("--v3",   action="store_true", help="Use v3 strategy")
 
     p_wt = sub.add_parser("weights")
     p_wt.add_argument("--v2", action="store_true", help="Use v2 strategy")
+    p_wt.add_argument("--v3", action="store_true", help="Use v3 strategy")
 
     sub.add_parser("compare")
 
     p_opt = sub.add_parser("optimize")
     p_opt.add_argument("--trials", type=int, default=300)
     p_opt.add_argument("--v2", action="store_true", help="Optimise v2 strategy")
+    p_opt.add_argument("--v3", action="store_true", help="Optimise v3 strategy")
 
     args = parser.parse_args()
 
     v2  = getattr(args, "v2", False)
-    cfg = _get_modules(v2)[0]
+    v3  = getattr(args, "v3", False)
+    cfg = _get_modules(v2, v3)[0]
 
-    _setup_logging(v2=v2)
+    _setup_logging(v2=v2, v3=v3)
 
     if args.cmd in ("fetch", "weights", "optimize"):
         _validate_env(cfg)
 
-    if   args.cmd == "fetch":    cmd_fetch(v2=v2)
-    elif args.cmd == "backtest": cmd_backtest(use_best=args.best, v2=v2)
-    elif args.cmd == "weights":  cmd_weights(v2=v2)
+    if   args.cmd == "fetch":    cmd_fetch(v2=v2, v3=v3)
+    elif args.cmd == "backtest": cmd_backtest(use_best=args.best, v2=v2, v3=v3)
+    elif args.cmd == "weights":  cmd_weights(v2=v2, v3=v3)
     elif args.cmd == "compare":  cmd_compare()
-    elif args.cmd == "optimize": cmd_optimize(n_trials=args.trials, v2=v2)
+    elif args.cmd == "optimize": cmd_optimize(n_trials=args.trials, v2=v2, v3=v3)
     else:
         parser.print_help()
 
