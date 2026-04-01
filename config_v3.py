@@ -5,11 +5,11 @@ FRED_API_KEY = os.getenv("FRED_API_KEY", "")
 DURATION_ETFS        = ["EDV", "TLT", "IEF", "JPST", "SHY"]
 INFLATION_ETFS       = ["TIP", "VTIP"]
 INFLATION_ETF        = "TIP"
-CREDIT_ETFS          = ["LQD", "HYG", "EMB", "PFF"]
+CREDIT_ETFS          = ["LQD", "HYG", "EMB"]
 HEDGE_ETFS           = ["GLD", "SLV", "PDBC", "DBA"]
 REAL_ASSET_ETFS      = ["VNQ"]
 EQUITY_ETFS          = ["MTUM", "SPY"]
-MANAGED_FUTURES_ETFS = ["DBMF"]
+MANAGED_FUTURES_ETFS = []
 
 ETF_UNIVERSE = (
     DURATION_ETFS + INFLATION_ETFS + CREDIT_ETFS

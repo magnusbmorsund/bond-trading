@@ -5,11 +5,18 @@ Commands:
   python main.py fetch                               Fetch / refresh all data
   python main.py backtest [--best] [--v2|--v3]       Backtest (--best uses optimised params)
   python main.py weights  [--v2|--v3]                Current positions for IBKR
+  python main.py trade    [--v2|--v3] [--dry-run]    Execute rebalance via IBKR Gateway
   python main.py optimize [--trials N] [--v2|--v3]   Run Optuna optimisation (default 300 trials)
 
 Add --v2 to any command to run the v2 strategy (SLV, VTIP, VNQ, SPY, USD signal, ISM signal).
 Add --v3 to any command to run the v3 strategy (EDV, JPST, DBMF, MTUM, growth composite,
   credit impulse, VIX term structure).
+
+IBKR Gateway env vars (for the trade command):
+  IBKR_HOST          Gateway hostname     (default: 127.0.0.1)
+  IBKR_PORT          4002=paper 4001=live (default: 4002)
+  IBKR_CLIENT_ID     API client ID        (default: 1)
+  IBKR_MIN_ORDER_USD Min order size USD   (default: 50)
 """
 import sys
 import os
@@ -222,6 +229,63 @@ def cmd_compare():
     plot_comparison(results_v1, results_v2, save_path=save_path)
 
 
+def cmd_trade(v2: bool = False, v3: bool = False, dry_run: bool = False):
+    from broker.ibkr_client import IBKRClient
+
+    cfg, load_all, run, effective_weights = _get_modules(v2, v3)
+    _validate_env(cfg)
+    _load_best(cfg, v2=v2, v3=v3)
+
+    logger.info("Loading data...")
+    macro, prices = load_all()
+
+    logger.info("Computing effective weights...")
+    results  = run(macro, prices)
+    signal_w = results["weights"].iloc[-1]
+    as_of    = results["weights"].index[-1].date()
+    eff_w    = effective_weights(signal_w, prices[cfg.ETF_UNIVERSE])
+    eff_w    = _validate_weights(eff_w, label="effective weights")
+
+    label = " V3" if v3 else (" V2" if v2 else "")
+    logger.info("Target weights%s as of %s:", label, as_of)
+    for etf, w in eff_w.sort_values(ascending=False).items():
+        if w > 0.001:
+            logger.info("  %s  %.2f%%", etf, w * 100)
+
+    client = IBKRClient()
+    client.connect()
+
+    try:
+        net_liq = client.get_net_liq()
+        logger.info("Net liquidation value: $%s", f"{net_liq:,.0f}")
+
+        current_shares = client.get_positions()
+        logger.info("Current positions: %s", current_shares)
+
+        all_tickers = list(set(eff_w.index.tolist()) | set(current_shares.keys()))
+        logger.info("Fetching prices for %d tickers...", len(all_tickers))
+        live_prices = client.get_prices(all_tickers)
+
+        orders = client.build_rebalance_orders(eff_w, net_liq, current_shares, live_prices)
+
+        if not orders:
+            print("\nNo orders needed — portfolio is already at target weights.")
+            return
+
+        client.print_preview(orders, net_liq)
+
+        if dry_run:
+            print("\n[dry-run] No orders submitted.")
+        else:
+            confirm = input("\nSubmit orders? [y/N]: ").strip().lower()
+            if confirm == "y":
+                client.submit_orders(orders)
+            else:
+                print("Aborted — no orders submitted.")
+    finally:
+        client.disconnect()
+
+
 def cmd_optimize(n_trials: int = 300, v2: bool = False, v3: bool = False):
     from optimize import run_optimization
     run_optimization(n_trials=n_trials, v2=v2, v3=v3)
@@ -245,6 +309,12 @@ def main():
     p_wt.add_argument("--v2", action="store_true", help="Use v2 strategy")
     p_wt.add_argument("--v3", action="store_true", help="Use v3 strategy")
 
+    p_trade = sub.add_parser("trade", help="Execute rebalance via IBKR Gateway")
+    p_trade.add_argument("--v2",      action="store_true", help="Use v2 strategy")
+    p_trade.add_argument("--v3",      action="store_true", help="Use v3 strategy")
+    p_trade.add_argument("--dry-run", action="store_true", dest="dry_run",
+                         help="Show order preview without submitting")
+
     sub.add_parser("compare")
 
     p_opt = sub.add_parser("optimize")
@@ -260,12 +330,13 @@ def main():
 
     _setup_logging(v2=v2, v3=v3)
 
-    if args.cmd in ("fetch", "weights", "optimize"):
+    if args.cmd in ("fetch", "weights", "optimize", "trade"):
         _validate_env(cfg)
 
     if   args.cmd == "fetch":    cmd_fetch(v2=v2, v3=v3)
     elif args.cmd == "backtest": cmd_backtest(use_best=args.best, v2=v2, v3=v3)
     elif args.cmd == "weights":  cmd_weights(v2=v2, v3=v3)
+    elif args.cmd == "trade":    cmd_trade(v2=v2, v3=v3, dry_run=args.dry_run)
     elif args.cmd == "compare":  cmd_compare()
     elif args.cmd == "optimize": cmd_optimize(n_trials=args.trials, v2=v2, v3=v3)
     else:
