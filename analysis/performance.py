@@ -263,9 +263,9 @@ def plot_annual_allocations(results: dict, save_path: str = None, top_n: int = 5
     plt.close()
 
 
-def plot_comparison(results_v1: dict, results_v2: dict, save_path: str = None):
+def plot_comparison(results_v1: dict, results_v2: dict, results_v3: dict = None, save_path: str = None):
     """
-    4-panel comparison chart: V1 vs V2 vs equal-weight benchmark.
+    4-panel comparison chart: V1 vs V2 vs V3 (optional) vs equal-weight benchmark.
       Panel 1: Cumulative NAV
       Panel 2: Drawdown
       Panel 3: Rolling 12-month Sharpe
@@ -273,7 +273,9 @@ def plot_comparison(results_v1: dict, results_v2: dict, save_path: str = None):
     """
     fig, axes = plt.subplots(4, 1, figsize=(14, 20),
                              gridspec_kw={"height_ratios": [3, 2, 2, 2]})
-    fig.suptitle("Strategy Comparison — V1 vs V2 (2005–2026)", fontsize=14, fontweight="bold")
+    title = "Strategy Comparison — V1 vs V2 vs V3 (2005–2026)" if results_v3 is not None \
+            else "Strategy Comparison — V1 vs V2 (2005–2026)"
+    fig.suptitle(title, fontsize=14, fontweight="bold")
 
     nav1    = results_v1["nav"] * 100_000
     nav2    = results_v2["nav"] * 100_000
@@ -282,12 +284,17 @@ def plot_comparison(results_v1: dict, results_v2: dict, save_path: str = None):
     ret2    = results_v2["daily_returns"]
     ret_bm  = results_v1["daily_returns_bm"]
 
-    C1, C2, CBM = "#2196F3", "#FF5722", "#9E9E9E"
+    C1, C2, C3, CBM = "#2196F3", "#FF5722", "#4CAF50", "#9E9E9E"
+
+    nav3  = results_v3["nav"] * 100_000 if results_v3 is not None else None
+    ret3  = results_v3["daily_returns"]  if results_v3 is not None else None
 
     # ── Panel 1: NAV ──────────────────────────────────────────────────────
     ax = axes[0]
     ax.plot(nav1.index,   nav1,   label="V1",                color=C1,  linewidth=1.8)
     ax.plot(nav2.index,   nav2,   label="V2",                color=C2,  linewidth=1.8)
+    if nav3 is not None:
+        ax.plot(nav3.index, nav3, label="V3",                color=C3,  linewidth=1.8)
     ax.plot(nav_bm.index, nav_bm, label="Equal-Weight BM",   color=CBM, linewidth=1.0, linestyle="--", alpha=0.7)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
     ax.set_ylabel("Portfolio Value (start = $100,000)")
@@ -299,6 +306,8 @@ def plot_comparison(results_v1: dict, results_v2: dict, save_path: str = None):
     ax = axes[1]
     ax.fill_between(nav1.index,   drawdown_series(nav1),   0, alpha=0.4, label="V1",              color=C1)
     ax.fill_between(nav2.index,   drawdown_series(nav2),   0, alpha=0.4, label="V2",              color=C2)
+    if nav3 is not None:
+        ax.fill_between(nav3.index, drawdown_series(nav3), 0, alpha=0.4, label="V3",              color=C3)
     ax.fill_between(nav_bm.index, drawdown_series(nav_bm), 0, alpha=0.2, label="Equal-Weight BM", color=CBM)
     ax.set_ylabel("Drawdown")
     ax.set_title("Drawdown")
@@ -312,6 +321,9 @@ def plot_comparison(results_v1: dict, results_v2: dict, save_path: str = None):
     rollbm = ret_bm.rolling(252).apply(lambda x: sharpe(x))
     ax.plot(roll1.index,  roll1,  label="V1",              color=C1,  linewidth=1.5)
     ax.plot(roll2.index,  roll2,  label="V2",              color=C2,  linewidth=1.5)
+    if ret3 is not None:
+        roll3 = ret3.rolling(252).apply(lambda x: sharpe(x))
+        ax.plot(roll3.index, roll3, label="V3",            color=C3,  linewidth=1.5)
     ax.plot(rollbm.index, rollbm, label="Equal-Weight BM", color=CBM, linewidth=1.0, linestyle="--", alpha=0.7)
     ax.axhline(0, color="black", linewidth=0.8, linestyle=":")
     ax.set_ylabel("Sharpe (12m rolling)")
@@ -323,14 +335,22 @@ def plot_comparison(results_v1: dict, results_v2: dict, save_path: str = None):
     ax = axes[3]
     ax.axis("off")
 
-    s1 = summary(ret1,   results_v1["nav"], "V1")
-    s2 = summary(ret2,   results_v2["nav"], "V2")
+    s1  = summary(ret1,   results_v1["nav"],    "V1")
+    s2  = summary(ret2,   results_v2["nav"],    "V2")
     sbm = summary(ret_bm, results_v1["nav_bm"], "EW Benchmark")
 
     metrics = ["Ann. Return", "Ann. Volatility", "Sharpe Ratio",
                "Max Drawdown", "Calmar Ratio", "Worst Month", "Best Month"]
-    col_labels = ["Metric", "V1", "V2", "EW Benchmark"]
-    table_data = [[m, s1[m], s2[m], sbm[m]] for m in metrics]
+
+    if results_v3 is not None:
+        s3 = summary(ret3, results_v3["nav"], "V3")
+        col_labels = ["Metric", "V1", "V2", "V3", "EW Benchmark"]
+        table_data = [[m, s1[m], s2[m], s3[m], sbm[m]] for m in metrics]
+        n_cols = 5
+    else:
+        col_labels = ["Metric", "V1", "V2", "EW Benchmark"]
+        table_data = [[m, s1[m], s2[m], sbm[m]] for m in metrics]
+        n_cols = 4
 
     tbl = ax.table(cellText=table_data, colLabels=col_labels, cellLoc="center", loc="center")
     tbl.auto_set_font_size(False)
@@ -338,15 +358,14 @@ def plot_comparison(results_v1: dict, results_v2: dict, save_path: str = None):
     tbl.scale(1, 2.2)
 
     # Header row
-    for col in range(4):
+    for col in range(n_cols):
         tbl[0, col].set_facecolor("#343a40")
         tbl[0, col].set_text_props(color="white", fontweight="bold")
-    # V1 column blue tint, V2 column orange tint
+    # Column tints
+    col_colors = ["#f5f5f5", "#E3F2FD", "#FBE9E7", "#E8F5E9", "#F5F5F5"]
     for row in range(1, len(metrics) + 1):
-        tbl[row, 0].set_facecolor("#f5f5f5")
-        tbl[row, 1].set_facecolor("#E3F2FD")
-        tbl[row, 2].set_facecolor("#FBE9E7")
-        tbl[row, 3].set_facecolor("#F5F5F5")
+        for col in range(n_cols):
+            tbl[row, col].set_facecolor(col_colors[col])
 
     ax.set_title("Summary Statistics", fontsize=11, fontweight="bold", pad=12)
 

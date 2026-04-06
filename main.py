@@ -209,10 +209,12 @@ def cmd_weights(v2: bool = False, v3: bool = False):
 
 
 def cmd_compare():
-    """Run both V1 and V2 with best params and produce a side-by-side comparison chart."""
-    import config_v2
-    from data.pipeline_v2    import load_all as load_all_v2
+    """Run V1, V2, and V3 with best params and produce a side-by-side comparison chart."""
+    import config_v2, config_v3
+    from data.pipeline_v2     import load_all as load_all_v2
+    from data.pipeline_v3     import load_all as load_all_v3
     from strategy_v2.backtest import run as run_v2
+    from strategy_v3.backtest import run as run_v3
 
     logger.info("Loading V1 data...")
     _load_best(config, v2=False)
@@ -224,9 +226,14 @@ def cmd_compare():
     macro2, prices2 = load_all_v2()
     results_v2 = run_v2(macro2, prices2)
 
+    logger.info("Loading V3 data...")
+    _load_best(config_v3, v3=True)
+    macro3, prices3 = load_all_v3()
+    results_v3 = run_v3(macro3, prices3)
+
     save_path = os.path.join(os.path.dirname(__file__), "backtest_comparison.png")
     logger.info("Saving comparison chart...")
-    plot_comparison(results_v1, results_v2, save_path=save_path)
+    plot_comparison(results_v1, results_v2, results_v3, save_path=save_path)
 
 
 def cmd_trade(v2: bool = False, v3: bool = False, dry_run: bool = False):
