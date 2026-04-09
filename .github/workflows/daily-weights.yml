@@ -1,0 +1,58 @@
+name: Daily Weights
+
+on:
+  schedule:
+    # 13:30 UTC = 15:30 CET / 14:30 GMT — gives 30 min before your 16:00 block
+    - cron: "30 13 * * 1-5"  # Mon-Fri only
+  workflow_dispatch:  # manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  compute-weights:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compute daily weights
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python daily_weights.py
+
+      - name: Commit positions
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add positions/
+          git diff --staged --quiet || git commit -m "positions: $(date +%Y-%m-%d)"
+          git push
+
+      - name: Send email notification
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "Bond Strategy Positions — ${{ github.event.repository.name }} — $(date +%Y-%m-%d)"
+          to: mbmorsund@gmail.com
+          from: Bond Trading Bot <${{ secrets.EMAIL_USERNAME }}>
+          body: |
+            Daily positions have been computed and committed.
+
+            View the latest positions:
+            https://github.com/magnusbmorsund/bond-trading/tree/main/positions
+
+            Run log:
+            https://github.com/magnusbmorsund/bond-trading/actions/runs/${{ github.run_id }}
+          content_type: text/plain
