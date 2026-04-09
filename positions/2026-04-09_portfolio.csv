@@ -1,4 +1,4 @@
-date,strategy,etf,weight_pct
+date,strategy,etf,target_weight_pct
 2026-04-09,v1,ANGL,4.88
 2026-04-09,v1,BKLN,6.37
 2026-04-09,v1,DBA,13.61

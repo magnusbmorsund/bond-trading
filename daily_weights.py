@@ -121,15 +121,24 @@ def main():
 
     df = pd.DataFrame(rows)
 
-    # Write daily file
-    daily_path = os.path.join(out_dir, f"{today}.csv")
-    df.to_csv(daily_path, index=False)
-    logger.info("Wrote %s", daily_path)
+    # --- 1. Orders CSV (only trades needed, skip if no changes) ---
+    orders = df[df["action"] != "HOLD"].copy()
+    orders_path = os.path.join(out_dir, f"{today}_orders.csv")
+    if len(orders) > 0:
+        orders.to_csv(orders_path, index=False)
+        logger.info("Wrote %s (%d trades)", orders_path, len(orders))
+    else:
+        logger.info("No trades needed today")
 
-    # Update history (only target weights, for next day's comparison)
+    # --- 2. Portfolio CSV (full composition) ---
+    portfolio = df[df["target_weight_pct"] > 0][["date", "strategy", "etf", "target_weight_pct"]].copy()
+    portfolio_path = os.path.join(out_dir, f"{today}_portfolio.csv")
+    portfolio.to_csv(portfolio_path, index=False)
+    logger.info("Wrote %s", portfolio_path)
+
+    # --- Update history (for next day's comparison) ---
     history_path = os.path.join(out_dir, "history.csv")
-    hist_rows = df[df["target_weight_pct"] > 0][["date", "strategy", "etf", "target_weight_pct"]].copy()
-    hist_rows = hist_rows.rename(columns={"target_weight_pct": "weight_pct"})
+    hist_rows = portfolio.rename(columns={"target_weight_pct": "weight_pct"})
     if os.path.exists(history_path):
         existing = pd.read_csv(history_path)
         existing = existing[existing["date"] != today]
