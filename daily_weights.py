@@ -121,20 +121,20 @@ def main():
 
     df = pd.DataFrame(rows)
 
-    # --- 1. Orders CSV (only trades needed, skip if no changes) ---
+    # --- Excel workbook with Orders + Portfolio sheets ---
     orders = df[df["action"] != "HOLD"].copy()
-    orders_path = os.path.join(out_dir, f"{today}_orders.csv")
-    if len(orders) > 0:
-        orders.to_csv(orders_path, index=False)
-        logger.info("Wrote %s (%d trades)", orders_path, len(orders))
-    else:
-        logger.info("No trades needed today")
-
-    # --- 2. Portfolio CSV (full composition) ---
     portfolio = df[df["target_weight_pct"] > 0][["date", "strategy", "etf", "target_weight_pct"]].copy()
-    portfolio_path = os.path.join(out_dir, f"{today}_portfolio.csv")
-    portfolio.to_csv(portfolio_path, index=False)
-    logger.info("Wrote %s", portfolio_path)
+
+    xlsx_path = os.path.join(out_dir, f"{today}.xlsx")
+    with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
+        portfolio.to_excel(writer, sheet_name="Portfolio", index=False)
+        if len(orders) > 0:
+            orders.to_excel(writer, sheet_name="Orders", index=False)
+        else:
+            pd.DataFrame([{"note": "No trades needed today"}]).to_excel(
+                writer, sheet_name="Orders", index=False
+            )
+    logger.info("Wrote %s (%d positions, %d trades)", xlsx_path, len(portfolio), len(orders))
 
     # --- Update history (for next day's comparison) ---
     history_path = os.path.join(out_dir, "history.csv")
