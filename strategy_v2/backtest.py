@@ -9,7 +9,7 @@ import config_v2 as config
 
 from strategy_v2.signals    import compute_all_macro, momentum, rolling_vol, resample_to_month_end
 from strategy_v2.portfolio  import build_weight_series
-from strategy.backtest_core import vol_scale, drawdown_overlay, apply_trailing_stops, effective_weights_core
+from strategy.backtest_core import vol_scale, drawdown_overlay, apply_trailing_stops, effective_weights_core, apply_transaction_costs
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def run(macro: pd.DataFrame, prices: pd.DataFrame) -> dict:
         weights.reindex(daily_ret.index).ffill().shift(1),
         prices[config.ETF_UNIVERSE],
     )
-    raw_daily      = (daily_w * daily_ret).sum(axis=1)
+    raw_daily      = apply_transaction_costs((daily_w * daily_ret).sum(axis=1), daily_w)
     raw_daily.name = "strategy_raw"
 
     cash_rate = macro["fedfunds"] if "fedfunds" in macro.columns else pd.Series(0.0, index=macro.index)

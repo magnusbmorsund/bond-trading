@@ -5,10 +5,68 @@ and strategy_v3/backtest.py. Extracted to eliminate ~95% code duplication across
 All functions are pure (no global config imports) — callers pass config values explicitly.
 """
 import logging
+import os
+from dataclasses import dataclass
 import pandas as pd
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Transaction-cost model (Saxo-calibrated, same parameters as magnus-trading)
+# ---------------------------------------------------------------------------
+
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, default))
+    except ValueError:
+        return default
+
+
+@dataclass(frozen=True)
+class CostModel:
+    """Saxo-calibrated round-trip cost model.
+
+    Default calibration (Saxo US ETF, variable-commission tier):
+    - Commission: 6 bps/side (0.06%)
+    - Bid/ask spread: 1 bps/side
+    - Market impact: linear in turnover fraction, 0–2 bps max
+
+    Override via env vars: BT_COMMISSION_BPS, BT_SPREAD_BPS, BT_IMPACT_MAX_BPS.
+    """
+    commission_bps_per_side: float = 6.0
+    spread_bps_per_side: float = 1.0
+    impact_max_bps: float = 2.0
+
+    def round_trip_bps(self, turnover_fraction: float) -> float:
+        """Round-trip cost in bps. impact scales linearly with turnover_fraction."""
+        tf = max(0.0, min(1.0, float(turnover_fraction)))
+        impact = self.impact_max_bps * tf
+        return 2.0 * (self.commission_bps_per_side + self.spread_bps_per_side + impact)
+
+
+DEFAULT_COST_MODEL = CostModel(
+    commission_bps_per_side=_float_env("BT_COMMISSION_BPS", 6.0),
+    spread_bps_per_side=_float_env("BT_SPREAD_BPS", 1.0),
+    impact_max_bps=_float_env("BT_IMPACT_MAX_BPS", 2.0),
+)
+
+
+def apply_transaction_costs(
+    raw_daily: pd.Series,
+    daily_w: pd.DataFrame,
+    model: CostModel = DEFAULT_COST_MODEL,
+) -> pd.Series:
+    """Subtract transaction costs from raw daily returns.
+
+    Costs are charged on any day the effective weights change — monthly rebalances
+    and trailing-stop exits. Turnover = sum(|Δw|) / 2 per day.
+    daily_w is expected to already have the one-day execution lag (shift(1)) applied.
+    """
+    daily_turnover = (daily_w - daily_w.shift(1).fillna(0)).abs().sum(axis=1) / 2
+    cost_fraction = daily_turnover.apply(lambda tf: tf * model.round_trip_bps(tf) / 10_000)
+    return raw_daily - cost_fraction
 
 
 def vol_scale(

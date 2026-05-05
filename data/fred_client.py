@@ -81,6 +81,16 @@ def fetch_series(series_id: str, start: str = "2000-01-01", force: bool = False)
         age_days = (pd.Timestamp.today() - cached.index[-1]).days
         try:
             data = _fetch_from_fred(series_id, start)
+            # If FRED returned fewer rows and our cache starts earlier (FRED truncated
+            # the series), preserve historical cache rows and append only the new tail.
+            if len(data) < len(cached) and len(data) > 0 and data.index[0] > cached.index[0]:
+                pre = cached[cached.index < data.index[0]]
+                data = pd.concat([pre, data]).sort_index()
+                logger.info(
+                    "FRED:%s truncated upstream (%d obs) — preserved %d historical rows, "
+                    "combined=%d",
+                    series_id, len(data) - len(pre), len(pre), len(data),
+                )
             data.to_csv(path, header=True)
             logger.info("Fetched FRED:%s  (%d obs)", series_id, len(data))
             return data
