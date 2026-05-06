@@ -10,10 +10,17 @@ import logging
 from datetime import date
 
 import pandas as pd
+from strategy.backtest_core import DEFAULT_COST_MODEL
 
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s")
 logger = logging.getLogger(__name__)
+
+# Minimum absolute delta (%) to trigger a trade.
+# Below this the round-trip cost exceeds the expected rebalance benefit.
+# At Saxo rates: ~14 bps round-trip at low turnover → 0.5% threshold keeps
+# cost drag well below the noise of daily returns.
+_MIN_TRADE_PCT = 0.5
 
 
 def _compute_weights(version: str):
@@ -92,12 +99,19 @@ def main():
                 previous = round(prev_weights.get(etf, 0), 2)
                 delta = round(current - previous, 2)
 
-                if delta > 0.05:
+                if delta > _MIN_TRADE_PCT:
                     action = "BUY"
-                elif delta < -0.05:
+                elif delta < -_MIN_TRADE_PCT:
                     action = "SELL"
                 else:
                     action = "HOLD"
+
+                # Estimated round-trip cost in bps for this position change.
+                # turnover_fraction = |delta| / 100 (weight as fraction of portfolio)
+                turnover_frac = abs(delta) / 100.0
+                est_cost_bps = round(
+                    turnover_frac * DEFAULT_COST_MODEL.round_trip_bps(turnover_frac), 2
+                ) if action != "HOLD" else 0.0
 
                 rows.append({
                     "date": today,
@@ -107,6 +121,7 @@ def main():
                     "target_weight_pct": current,
                     "delta_pct": delta,
                     "action": action,
+                    "est_cost_bps": est_cost_bps,
                 })
 
             n_pos = sum(1 for r in rows if r["strategy"] == version and r["target_weight_pct"] > 0)
@@ -123,7 +138,9 @@ def main():
 
     # --- Excel workbook with Orders + Portfolio sheets ---
     orders = df[df["action"] != "HOLD"].copy()
-    portfolio = df[df["target_weight_pct"] > 0][["date", "strategy", "etf", "target_weight_pct"]].copy()
+    portfolio = df[df["target_weight_pct"] > 0][
+        ["date", "strategy", "etf", "target_weight_pct"]
+    ].copy()
 
     xlsx_path = os.path.join(out_dir, f"{today}.xlsx")
     with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
@@ -161,7 +178,10 @@ def main():
         if len(trades) > 0:
             for _, r in trades.iterrows():
                 sign = "+" if r["delta_pct"] > 0 else ""
-                print(f"    {r['action']:>4s}  {r['etf']:>5s}  {r['prev_weight_pct']:6.2f}% → {r['target_weight_pct']:6.2f}%  ({sign}{r['delta_pct']:.2f}%)")
+                cost_str = f"  ~{r['est_cost_bps']:.2f} bps cost" if r["est_cost_bps"] > 0 else ""
+                print(f"    {r['action']:>4s}  {r['etf']:>5s}  {r['prev_weight_pct']:6.2f}% → {r['target_weight_pct']:6.2f}%  ({sign}{r['delta_pct']:.2f}%){cost_str}")
+            total_cost = trades["est_cost_bps"].sum()
+            print(f"    Est. total cost: {total_cost:.2f} bps")
         else:
             print(f"    No trades needed")
         if len(holds) > 0:
