@@ -26,7 +26,7 @@ def _apply_trailing_stops(daily_w: pd.DataFrame, prices: pd.DataFrame) -> pd.Dat
 def effective_weights(signal_weights: pd.Series, recent_prices: pd.DataFrame) -> pd.Series:
     return effective_weights_core(
         signal_weights, recent_prices,
-        stop_etfs=config.ETF_UNIVERSE,
+        stop_etfs=config.TRAILING_STOP_ETFS,
         stop_pct=config.TRAILING_STOP_PCT,
         stop_window=config.TRAILING_STOP_WINDOW,
     )

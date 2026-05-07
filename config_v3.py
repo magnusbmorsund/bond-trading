@@ -16,6 +16,10 @@ ETF_UNIVERSE = (
     + HEDGE_ETFS + REAL_ASSET_ETFS + EQUITY_ETFS + MANAGED_FUTURES_ETFS
 )
 
+# ETFs that get a trailing stop in Nordnet: trending/crash-prone assets only.
+# Duration, TIPS, IG credit excluded — mean-reverting, macro signal handles exit.
+TRAILING_STOP_ETFS = HEDGE_ETFS + ["HYG"] + REAL_ASSET_ETFS + EQUITY_ETFS + MANAGED_FUTURES_ETFS
+
 FRED_SERIES = {
     "spread_2s10s":   "T10Y2Y",
     "spread_10y3m":   "T10Y3M",
