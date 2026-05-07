@@ -2,21 +2,21 @@
 
 Systematic macro-driven rotation across fixed income, commodity, and satellite ETFs. Targets strong risk-adjusted returns with max drawdown below 10%. Runs monthly with daily trailing stops.
 
-Two strategy versions share the same codebase — add `--v2` to any command to switch.
+Three strategy versions share the same codebase — add `--v2` or `--v3` to any command to switch.
 
-## Performance (2005–2026 backtest, optimised params)
+## Performance (2003–2026 backtest, optimised params)
 
-| Metric          | V1       | V2       |
-|----------------|----------|----------|
-| Ann. Return     | 23.6%    | 24.9%    |
-| Ann. Volatility | 7.0%     | 6.8%     |
-| Sharpe Ratio    | 3.10     | 3.32     |
-| Max Drawdown    | -7.2%    | -9.4%    |
-| Calmar Ratio    | 3.27     | 2.66     |
-| Worst Month     | -4.6%    | -4.2%    |
-| Turnover (avg)  | 16%/mo   | 21%/mo   |
+| Metric          | V1       | V2       | V3       |
+|----------------|----------|----------|----------|
+| Ann. Return     | 13.4%    | 14.8%    | 14.2%    |
+| Ann. Volatility | 5.7%     | 6.3%     | 4.8%     |
+| Sharpe Ratio    | 2.37     | 2.35     | 2.94     |
+| Max Drawdown    | -6.9%    | -10.6%   | -6.6%    |
+| Calmar Ratio    | 1.96     | 1.39     | 2.14     |
+| Worst Month     | -4.7%    | -5.7%    | -1.9%    |
+| Turnover (avg)  | 17%/mo   | 22%/mo   | 13%/mo   |
 
-V1 has the edge on drawdown control (Calmar 3.27). V2 has the edge on raw return and Sharpe. Both ran on the same 2005–2026 period with a 70/30 train/test split; OOS Sharpe was 3.38 for V2.
+V3 has the best Sharpe (2.94) and lowest drawdown (-6.6%) with the cleanest monthly worst-case (-1.9%). V2 generates the highest raw return (14.8%) but at higher drawdown risk (-10.6%). V1 sits in the middle. All figures use optimised params from `best_params*.json` over the full 2003–2026 history.
 
 ## ETF Universe
 
@@ -75,11 +75,17 @@ Three composite z-scores drive all allocation decisions:
 
 ### Risk Management
 
-**Per-position trailing stops (daily)** — each commodity ETF exits if its price drops >3% below its 21-day rolling peak. Freed weight moves to SHY. Key edge: macro signals drive monthly entry; price-driven stops drive daily exit.
+**Per-position trailing stops (daily)** — commodity and satellite ETFs exit if price drops >3% below the 21-day rolling peak. Freed weight moves to SHY. Key edge: macro signals drive monthly entry; price-driven stops drive daily exit.
 
-**Drawdown overlay** — when portfolio drawdown exceeds -10% AND yesterday was negative, exposure scales to 45% (V2) / 0% (V1 default). Re-enters fully the next positive day. Cash earns the fed funds rate.
+**Drawdown overlay** — when portfolio drawdown exceeds threshold AND yesterday was negative, exposure scales down. Re-enters fully the next positive day. Cash earns the fed funds rate.
+- V1: threshold -3%, scale to 30%
+- V2: threshold -2%, scale to 45%
+- V3: threshold -14%, scale to 10% (effectively ride-through with light trim)
 
-**Volatility targeting** — daily scaling so realised vol tracks 11% (V2) / 8% (V1) target, leverage capped at 1.75×.
+**Volatility targeting** — daily scaling so realised vol tracks target, leverage capped at maximum.
+- V1: 15% vol target, 1.75× leverage cap
+- V2: 12% vol target, 1.75× leverage cap
+- V3: 12% vol target, 1.50× leverage cap
 
 ## Setup
 
@@ -102,6 +108,12 @@ python main.py fetch --v2
 python main.py backtest --v2 --best
 python main.py weights --v2
 python main.py optimize --v2 --trials 300
+
+# V3 strategy — append --v3 to any command
+python main.py fetch --v3
+python main.py backtest --v3 --best
+python main.py weights --v3
+python main.py optimize --v3 --trials 300
 ```
 
 The `weights` command is the production entry point. Run it each month-end to get exact position sizes for IBKR. It shows both raw signal weights and trailing-stop-adjusted effective positions.
@@ -118,9 +130,10 @@ The `weights` command is the production entry point. Run it each month-end to ge
 ```bash
 python main.py optimize --trials 500          # re-optimise V1
 python main.py optimize --v2 --trials 300     # re-optimise V2
+python main.py optimize --v3 --trials 300     # re-optimise V3
 ```
 
-Best parameters save to `best_params.json` (V1) and `best_params_v2.json` (V2), loaded automatically by `weights`. Re-run when macro regime shifts substantially or after 12+ months of live trading.
+Best parameters save to `best_params.json` (V1), `best_params_v2.json` (V2), and `best_params_v3.json` (V3), loaded automatically by `weights`. Re-run when macro regime shifts substantially or after 12+ months of live trading.
 
 ## Project Structure
 
@@ -128,10 +141,14 @@ Best parameters save to `best_params.json` (V1) and `best_params_v2.json` (V2), 
 bond-trading/
 ├── config.py               # V1 parameters
 ├── config_v2.py            # V2 parameters (SLV, VTIP, VNQ, SPY, USD signal)
-├── main.py                 # CLI entry point (--v2 flag switches strategy)
-├── optimize.py             # Optuna optimisation (supports --v2)
+├── config_v3.py            # V3 parameters (managed futures DBMF/CTA)
+├── config_v2b.py           # V2b experiment (3-month duration momentum gate)
+├── main.py                 # CLI entry point (--v2/--v3 flag switches strategy)
+├── optimize.py             # Optuna optimisation (supports --v2/--v3)
 ├── best_params.json        # V1 production parameters
 ├── best_params_v2.json     # V2 production parameters
+├── best_params_v3.json     # V3 production parameters
+├── daily_weights.py        # GitHub Actions: compute + email weights daily
 ├── strategy/               # V1 strategy modules
 │   ├── signals.py
 │   ├── portfolio.py
@@ -140,9 +157,18 @@ bond-trading/
 │   ├── signals.py          # + USD signal (DTWEXBGS), ISM fallback
 │   ├── portfolio.py        # + equity satellite, VNQ, VTIP/TIP split
 │   └── backtest.py
+├── strategy_v3/            # V3 strategy modules (+ managed futures)
+│   ├── signals.py
+│   ├── portfolio.py
+│   └── backtest.py
+├── strategy_v2b/           # V2b experiment (not in production)
+│   ├── signals.py
+│   ├── portfolio.py
+│   └── backtest.py
 ├── data/
 │   ├── pipeline.py         # V1 data loading
-│   ├── pipeline_v2.py      # V2 data loading (etf_prices_v2.csv cache)
+│   ├── pipeline_v2.py      # V2/V2b data loading (etf_prices_v2.csv cache)
+│   ├── pipeline_v3.py      # V3 data loading (etf_prices_v3.csv cache)
 │   ├── fred_client.py      # FRED API + caching
 │   └── price_client.py     # Yahoo Finance ETF prices + caching
 └── analysis/
@@ -151,16 +177,17 @@ bond-trading/
 
 ## Key Config Parameters
 
-| Parameter | V1 (optimised) | V2 (optimised) | Description |
-|-----------|---------------|---------------|-------------|
-| `MAX_ALT_ALLOC` | 60% | 60% | Max commodity basket allocation |
-| `TRAILING_STOP_PCT` | 3% | 3% | Exit commodity if price drops this far from peak |
-| `TRAILING_STOP_WINDOW` | 21 days | 21 days | Rolling peak lookback for trailing stop |
-| `VOL_TARGET` | 11% | 11% | Portfolio volatility target |
-| `MAX_LEVERAGE` | 1.75× | 1.75× | Max daily vol-scaling leverage |
-| `DD_THRESHOLD` | -10% | -10% | Drawdown level that triggers scaling |
-| `DD_SCALE` | 45% | 45% | Exposure kept during drawdown |
-| `MAX_EQUITY_ALLOC` | — | 15% | V2 equity satellite cap |
-| `MAX_REALESTATE_ALLOC` | — | 5% | V2 VNQ allocation cap |
-| `W_COMMODITY_USD` | — | 0.30 | V2 USD drag weight on commodity budget |
-| `VTIP_DURATION_SCALE` | — | 1.0 | V2 sensitivity of TIP/VTIP split |
+| Parameter | V1 (optimised) | V2 (optimised) | V3 (optimised) | Description |
+|-----------|---------------|---------------|---------------|-------------|
+| `MAX_ALT_ALLOC` | 60% | 60% | 60% | Max commodity basket allocation |
+| `TRAILING_STOP_PCT` | 3% | 3% | 3% | Exit if price drops this far from rolling peak |
+| `TRAILING_STOP_WINDOW` | 21 days | 21 days | 21 days | Rolling peak lookback for trailing stop |
+| `VOL_TARGET` | 15% | 12% | 12% | Portfolio volatility target |
+| `MAX_LEVERAGE` | 1.75× | 1.75× | 1.50× | Max daily vol-scaling leverage |
+| `DD_THRESHOLD` | -3% | -2% | -14% | Drawdown level that triggers exposure scaling |
+| `DD_SCALE` | 30% | 45% | 10% | Exposure kept during drawdown event |
+| `MAX_CREDIT_ALLOC` | 80% | 80% | 75% | Max credit bucket allocation |
+| `MAX_EQUITY_ALLOC` | — | 5% | 15% | Equity satellite cap |
+| `MAX_REALESTATE_ALLOC` | — | 10% | 10% | VNQ allocation cap |
+| `W_COMMODITY_USD` | — | 0.40 | 0.05 | USD drag weight on commodity budget |
+| `VTIP_DURATION_SCALE` | — | 1.1 | 1.1 | Sensitivity of TIP/VTIP split to duration_z |

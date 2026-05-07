@@ -124,4 +124,4 @@ print(s)
 EOF
 ```
 
-Targets: Ann. Return > 10%, Max Drawdown < -10%, Sharpe > 1.5.
+Targets (with optimised params, full history): Ann. Return > 13%, Sharpe > 2.3, Max Drawdown better than -11%.
