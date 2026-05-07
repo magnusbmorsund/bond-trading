@@ -163,33 +163,64 @@ def main():
     hist_rows.to_csv(history_path, index=False)
     logger.info("Updated %s", history_path)
 
-    # Print summary for GitHub Actions log / email body
-    print(f"\n{'='*60}")
-    print(f"DAILY ORDERS — {today}")
-    print(f"{'='*60}")
-    for version in ["v1", "v2", "v3"]:
-        vdf = df[df["strategy"] == version].copy()
-        if vdf.empty:
-            continue
-        trades = vdf[vdf["action"] != "HOLD"].sort_values("delta_pct", key=abs, ascending=False)
-        holds = vdf[vdf["action"] == "HOLD"]
+    _write_email_files(df, today)
 
-        print(f"\n  {version.upper()}:")
+
+def _write_email_files(df: pd.DataFrame, today: str) -> None:
+    """Write /tmp/email_subject.txt and /tmp/email_body.txt for the workflow email step."""
+    run_id  = os.environ.get("GITHUB_RUN_ID", "")
+    repo    = os.environ.get("GITHUB_REPOSITORY", "magnusbmorsund/bond-trading")
+    pos_url = f"https://github.com/{repo}/tree/main/positions"
+    run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if run_id else ""
+
+    trades_by_version: dict[str, pd.DataFrame] = {}
+    any_trades = False
+    for version in ["v1", "v2", "v3"]:
+        vdf    = df[df["strategy"] == version]
+        trades = vdf[vdf["action"] != "HOLD"].sort_values("delta_pct", key=abs, ascending=False)
+        trades_by_version[version] = trades
         if len(trades) > 0:
+            any_trades = True
+
+    subject = (
+        f"ACTION NEEDED — Bond Strategy — {today}"
+        if any_trades else
+        f"No action — Bond Strategy — {today}"
+    )
+
+    lines = [subject, ""]
+
+    for version in ["v1", "v2", "v3"]:
+        trades = trades_by_version[version]
+        n = len(trades)
+        if n == 0:
+            lines.append(f"{version.upper()} — No trades needed")
+        else:
+            lines.append(f"{version.upper()} — {n} trade{'s' if n > 1 else ''} needed")
             for _, r in trades.iterrows():
                 sign = "+" if r["delta_pct"] > 0 else ""
-                cost_str = f"  ~{r['est_cost_bps']:.2f} bps cost" if r["est_cost_bps"] > 0 else ""
-                print(f"    {r['action']:>4s}  {r['etf']:>5s}  {r['prev_weight_pct']:6.2f}% → {r['target_weight_pct']:6.2f}%  ({sign}{r['delta_pct']:.2f}%){cost_str}")
+                cost = f"   ~{r['est_cost_bps']:.1f} bps" if r.get("est_cost_bps", 0) > 0 else ""
+                lines.append(
+                    f"  {r['action']:>4s}  {r['etf']:<5s}"
+                    f"  {r['prev_weight_pct']:6.2f}% -> {r['target_weight_pct']:6.2f}%"
+                    f"  ({sign}{r['delta_pct']:.2f}%){cost}"
+                )
             total_cost = trades["est_cost_bps"].sum()
-            print(f"    Est. total cost: {total_cost:.2f} bps")
-        else:
-            print(f"    No trades needed")
-        if len(holds) > 0:
-            hold_etfs = ", ".join(holds["etf"])
-            print(f"    HOLD  {hold_etfs}")
-        print(f"    {'─'*50}")
-        total = vdf["target_weight_pct"].sum()
-        print(f"    Total weight: {total:.2f}%")
+            if total_cost > 0:
+                lines.append(f"  Est. cost: {total_cost:.1f} bps")
+        lines.append("")
+
+    lines += ["---", f"Positions: {pos_url}"]
+    if run_url:
+        lines.append(f"Run log:   {run_url}")
+
+    body = "\n".join(lines)
+
+    with open("/tmp/email_subject.txt", "w") as f:
+        f.write(subject)
+    with open("/tmp/email_body.txt", "w") as f:
+        f.write(body)
+    logger.info("Email content written — %s", subject)
 
 
 if __name__ == "__main__":

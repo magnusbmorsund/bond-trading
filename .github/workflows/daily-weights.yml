@@ -42,7 +42,16 @@ jobs:
         run: |
           TODAY=$(date +%Y-%m-%d)
           echo "path=positions/${TODAY}.xlsx" >> "$GITHUB_OUTPUT"
-          echo "date=${TODAY}" >> "$GITHUB_OUTPUT"
+
+      - name: Read email content
+        id: email
+        run: |
+          echo "subject=$(cat /tmp/email_subject.txt)" >> "$GITHUB_OUTPUT"
+          {
+            echo 'body<<EMAILEOF'
+            cat /tmp/email_body.txt
+            echo 'EMAILEOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Send email notification
         uses: dawidd6/action-send-mail@v3
@@ -51,18 +60,9 @@ jobs:
           server_port: 465
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "Bond Strategy Positions — ${{ github.event.repository.name }} — ${{ steps.xlsx.outputs.date }}"
+          subject: ${{ steps.email.outputs.subject }}
           to: mbmorsund@gmail.com
           from: Bond Trading Bot <${{ secrets.EMAIL_USERNAME }}>
           attachments: ${{ steps.xlsx.outputs.path }}
-          body: |
-            Daily positions have been computed and committed. The attached
-            Excel file contains two sheets: Portfolio (target weights) and
-            Orders (buy/sell actions vs. previous day).
-
-            View the latest positions:
-            https://github.com/magnusbmorsund/bond-trading/tree/main/positions
-
-            Run log:
-            https://github.com/magnusbmorsund/bond-trading/actions/runs/${{ github.run_id }}
+          body: ${{ steps.email.outputs.body }}
           content_type: text/plain
