@@ -124,4 +124,4 @@ print(s)
 EOF
 ```
 
-Targets (with optimised params, full history): Ann. Return > 13%, Sharpe > 2.3, Max Drawdown better than -11%.
+Targets (with optimised params, 2011-2026, cash on stop-outs): CAGR > 19%, Sharpe (CAGR/vol) > 2.9, Max Drawdown better than -11%. Primary return metric is CAGR (geometric), not arithmetic mean×252.

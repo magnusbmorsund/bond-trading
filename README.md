@@ -6,41 +6,47 @@ Three strategy versions share the same codebase — add `--v2` or `--v3` to any 
 
 ## Performance (2011–2026 backtest, optimised params, cash on stop-outs)
 
-Stop-triggered positions hold cash at 0% (not SHY) until the next monthly rebalance.
+Stop-triggered positions hold cash at 0% (not SHY) until the next monthly rebalance. CAGR is the primary return metric — it compounds daily returns geometrically and is the number a buy-and-hold investor actually experiences.
 
-| Metric          | V1       | V2       | V3       |
-|----------------|----------|----------|----------|
-| Ann. Return     | 17.6%    | 19.6%    | 17.9%    |
-| Ann. Volatility | 6.4%     | 7.1%     | 5.3%     |
-| Sharpe Ratio    | 2.76     | 2.75     | 3.39     |
-| Max Drawdown    | -6.6%    | -10.1%   | -6.6%    |
-| Calmar Ratio    | 2.66     | 1.93     | 2.72     |
-| Worst Month     | —        | -5.7%    | -1.9%    |
-| Turnover (avg)  | 17%/mo   | 22%/mo   | 13%/mo   |
+| Metric                | V1       | V2       | V3       |
+|----------------------|----------|----------|----------|
+| **CAGR**             | **19.0%**| **21.3%**| **19.4%**|
+| Arith. Ann. Return   | 17.6%    | 19.6%    | 17.9%    |
+| Volatility           | 6.4%     | 7.1%     | 5.3%     |
+| Sharpe (CAGR / vol)  | 2.98     | 2.99     | **3.68** |
+| Max Drawdown         | -6.6%    | -10.1%   | **-6.6%**|
+| Calmar (CAGR)        | 2.89     | 2.10     | **2.94** |
+| Worst Month          | -4.6%    | -5.7%    | **-1.9%**|
+| Final NAV            | 14.3x    | **19.2x**| 15.2x    |
+| Turnover (avg)       | 17%/mo   | 22%/mo   | 13%/mo   |
 
-V3 has the best Sharpe (3.39) and ties V1 on max drawdown (-6.6%). V2 delivers the highest raw return (19.6%) with more volatility. All figures use optimised params from `best_params*.json` over 2011–2026.
+**V3** — best risk-adjusted: Sharpe 3.68, MaxDD -6.6%, worst month only -1.9%.  
+**V2** — highest absolute return: 21.3% CAGR, 19.2x final NAV, at the cost of deeper drawdowns.  
+**V1** — conservative middle ground: 19.0% CAGR, MaxDD -6.6%, lower turnover.
+
+Exact figures and year-by-year breakdown stored in [`backtest_results.json`](backtest_results.json).
 
 <details>
-<summary>Year-by-year returns (cash on stop-outs)</summary>
+<summary>Year-by-year returns</summary>
 
-| Year | V1    | V2    | V3    |
-|------|-------|-------|-------|
-| 2011 | 33.0% | 54.9% | 40.4% |
-| 2012 | 10.7% | 11.6% | 11.4% |
-| 2013 | +0.4% | -2.3% | -3.2% |
-| 2014 |  2.3% | 13.3% |  5.6% |
-| 2015 |  9.2% |  6.8% |  7.1% |
-| 2016 | 27.7% | 33.9% | 22.1% |
-| 2017 | 14.7% | 20.7% | 15.3% |
-| 2018 |  5.4% |  2.2% |  5.1% |
-| 2019 | 22.9% | 19.5% | 16.0% |
-| 2020 | 39.3% | 55.8% | 44.8% |
-| 2021 | 16.9% | 20.4% | 24.2% |
-| 2022 |  1.3% | -7.7% |  5.2% |
-| 2023 | 20.1% | 12.1% | 13.4% |
-| 2024 | 41.4% | 46.3% | 39.1% |
-| 2025 | 34.5% | 43.7% | 44.4% |
-| 2026 | 21.5% | 16.7% | 19.8% |
+| Year | V1    | V2     | V3    |
+|------|-------|--------|-------|
+| 2011 | 33.0% |  54.9% | 40.4% |
+| 2012 | 10.7% |  11.6% | 11.4% |
+| 2013 |  0.4% |  -2.3% | -3.2% |
+| 2014 |  2.3% |  13.3% |  5.6% |
+| 2015 |  9.2% |   6.8% |  7.1% |
+| 2016 | 27.7% |  33.9% | 22.1% |
+| 2017 | 14.7% |  20.7% | 15.3% |
+| 2018 |  5.4% |   2.2% |  5.1% |
+| 2019 | 22.9% |  19.5% | 16.0% |
+| 2020 | 39.3% |  55.8% | 44.8% |
+| 2021 | 16.9% |  20.4% | 24.2% |
+| 2022 |  1.3% |  -7.7% |  5.2% |
+| 2023 | 20.1% |  12.1% | 13.4% |
+| 2024 | 41.4% |  46.3% | 39.1% |
+| 2025 | 34.5% |  43.7% | 44.4% |
+| 2026 | 21.5% |  16.7% | 19.8% |
 
 </details>
 
