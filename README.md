@@ -4,19 +4,45 @@ Systematic macro-driven rotation across fixed income, commodity, and satellite E
 
 Three strategy versions share the same codebase — add `--v2` or `--v3` to any command to switch.
 
-## Performance (2003–2026 backtest, optimised params)
+## Performance (2011–2026 backtest, optimised params, cash on stop-outs)
+
+Stop-triggered positions hold cash at 0% (not SHY) until the next monthly rebalance.
 
 | Metric          | V1       | V2       | V3       |
 |----------------|----------|----------|----------|
-| Ann. Return     | 13.4%    | 14.8%    | 14.2%    |
-| Ann. Volatility | 5.7%     | 6.3%     | 4.8%     |
-| Sharpe Ratio    | 2.37     | 2.35     | 2.94     |
-| Max Drawdown    | -6.9%    | -10.6%   | -6.6%    |
-| Calmar Ratio    | 1.96     | 1.39     | 2.14     |
-| Worst Month     | -4.7%    | -5.7%    | -1.9%    |
+| Ann. Return     | 17.6%    | 19.6%    | 17.9%    |
+| Ann. Volatility | 6.4%     | 7.1%     | 5.3%     |
+| Sharpe Ratio    | 2.76     | 2.75     | 3.39     |
+| Max Drawdown    | -6.6%    | -10.1%   | -6.6%    |
+| Calmar Ratio    | 2.66     | 1.93     | 2.72     |
+| Worst Month     | —        | -5.7%    | -1.9%    |
 | Turnover (avg)  | 17%/mo   | 22%/mo   | 13%/mo   |
 
-V3 has the best Sharpe (2.94) and lowest drawdown (-6.6%) with the cleanest monthly worst-case (-1.9%). V2 generates the highest raw return (14.8%) but at higher drawdown risk (-10.6%). V1 sits in the middle. All figures use optimised params from `best_params*.json` over the full 2003–2026 history.
+V3 has the best Sharpe (3.39) and ties V1 on max drawdown (-6.6%). V2 delivers the highest raw return (19.6%) with more volatility. All figures use optimised params from `best_params*.json` over 2011–2026.
+
+<details>
+<summary>Year-by-year returns (cash on stop-outs)</summary>
+
+| Year | V1    | V2    | V3    |
+|------|-------|-------|-------|
+| 2011 | 33.0% | 54.9% | 40.4% |
+| 2012 | 10.7% | 11.6% | 11.4% |
+| 2013 | +0.4% | -2.3% | -3.2% |
+| 2014 |  2.3% | 13.3% |  5.6% |
+| 2015 |  9.2% |  6.8% |  7.1% |
+| 2016 | 27.7% | 33.9% | 22.1% |
+| 2017 | 14.7% | 20.7% | 15.3% |
+| 2018 |  5.4% |  2.2% |  5.1% |
+| 2019 | 22.9% | 19.5% | 16.0% |
+| 2020 | 39.3% | 55.8% | 44.8% |
+| 2021 | 16.9% | 20.4% | 24.2% |
+| 2022 |  1.3% | -7.7% |  5.2% |
+| 2023 | 20.1% | 12.1% | 13.4% |
+| 2024 | 41.4% | 46.3% | 39.1% |
+| 2025 | 34.5% | 43.7% | 44.4% |
+| 2026 | 21.5% | 16.7% | 19.8% |
+
+</details>
 
 ## ETF Universe
 
