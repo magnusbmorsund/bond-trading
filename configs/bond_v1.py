@@ -79,7 +79,7 @@ TRAILING_STOP_WINDOW = 21     # 21-day rolling peak
 
 # --- Volatility Targeting ---
 VOL_TARGET   = 0.08
-MAX_LEVERAGE = 1.50
+MAX_LEVERAGE = 1.0
 VOL_LOOKBACK = 21
 
 # --- VIX Thresholds ---

@@ -47,7 +47,6 @@ PARAM_SPACE = {
     "SIGNAL_BLEND":     ("float", 0.00, 1.00, 0.10),
     # Vol/leverage
     "VOL_TARGET":       ("float", 0.05, 0.15, 0.01),
-    "MAX_LEVERAGE":     ("float", 1.00, 1.75, 0.25),
     # VIX thresholds
     "VIX_RISK_OFF":     ("float", 18.0, 40.0, 1.0),
     "VIX_RISK_ON":      ("float", 10.0, 22.0, 1.0),
