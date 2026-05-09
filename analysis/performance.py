@@ -122,8 +122,10 @@ def plot_results(results: dict, save_path: str = None):
 
     # ── Panel 4: Rolling 12m Sharpe ────────────────────────────────────────
     ax = axes[3]
-    roll_sr    = ret.rolling(252).apply(lambda x: sharpe(x))
-    roll_sr_bm = ret_bm.rolling(252).apply(lambda x: sharpe(x))
+    def _roll_sr(r, w=252):
+        return r.rolling(w).mean() / r.rolling(w).std() * np.sqrt(w)
+    roll_sr    = _roll_sr(ret)
+    roll_sr_bm = _roll_sr(ret_bm)
     ax.plot(roll_sr.index,    roll_sr,    label="Strategy",       linewidth=1.2)
     ax.plot(roll_sr_bm.index, roll_sr_bm, label="Equal-Weight BM",linewidth=1.0, alpha=0.7, linestyle="--")
     ax.axhline(0, color="black", linewidth=0.8, linestyle=":")
@@ -316,13 +318,15 @@ def plot_comparison(results_v1: dict, results_v2: dict, results_v3: dict = None,
 
     # ── Panel 3: Rolling 12m Sharpe ────────────────────────────────────────
     ax = axes[2]
-    roll1  = ret1.rolling(252).apply(lambda x: sharpe(x))
-    roll2  = ret2.rolling(252).apply(lambda x: sharpe(x))
-    rollbm = ret_bm.rolling(252).apply(lambda x: sharpe(x))
+    def _roll_sr(r, w=252):
+        return r.rolling(w).mean() / r.rolling(w).std() * np.sqrt(w)
+    roll1  = _roll_sr(ret1)
+    roll2  = _roll_sr(ret2)
+    rollbm = _roll_sr(ret_bm)
     ax.plot(roll1.index,  roll1,  label="V1",              color=C1,  linewidth=1.5)
     ax.plot(roll2.index,  roll2,  label="V2",              color=C2,  linewidth=1.5)
     if ret3 is not None:
-        roll3 = ret3.rolling(252).apply(lambda x: sharpe(x))
+        roll3 = _roll_sr(ret3)
         ax.plot(roll3.index, roll3, label="V3",            color=C3,  linewidth=1.5)
     ax.plot(rollbm.index, rollbm, label="Equal-Weight BM", color=CBM, linewidth=1.0, linestyle="--", alpha=0.7)
     ax.axhline(0, color="black", linewidth=0.8, linestyle=":")

@@ -27,6 +27,8 @@ import os
 import json
 import logging
 import argparse
+from dataclasses import dataclass
+from typing import Any, Callable
 import pandas as pd
 import warnings
 warnings.filterwarnings("ignore")
@@ -35,6 +37,14 @@ import config
 from analysis.performance import print_summary_table, plot_results, plot_annual_stats, plot_annual_allocations, plot_comparison
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Strategy:
+    config: Any
+    load: Callable   # (force=False) -> (macro_or_None, prices)
+    run: Callable    # (macro, prices) -> results
+    eff_weights: Callable
 
 
 # ---------------------------------------------------------------------------
@@ -66,56 +76,51 @@ def _setup_logging(v2: bool = False, v3: bool = False, sector2: bool = False):
 # Strategy module selector
 # ---------------------------------------------------------------------------
 
-def _get_modules(v2: bool, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, stop_freq: str = "daily"):
-    """Return (cfg, load_all, run, effective_weights) for v1, v2, v3, sector, sector2, or sector2b."""
+def _get_strategy(v2: bool, v3: bool = False, sector: bool = False,
+                  sector2: bool = False, sector2b: bool = False,
+                  stop_freq: str = "daily") -> Strategy:
+    """Resolve config, pipeline, and backtest for the requested strategy variant."""
     if sector2b:
         import config_sector_v2b as cfg
         from data.pipeline_sector_v2b     import load_all as _load
         from strategy_sector_v2b.backtest import run as _run, effective_weights as _eff
-        def load_all(force=False):
-            prices = _load(force=force)
-            return None, prices
-        def run(macro, prices):    # noqa: F811
-            return _run(prices)
-        effective_weights = _eff   # noqa: F811
-        return cfg, load_all, run, effective_weights
-    elif sector2:
+        def _load_wrap(force=False): return None, _load(force=force)
+        def _run_wrap(macro, prices): return _run(prices)
+        return Strategy(cfg, _load_wrap, _run_wrap, _eff)
+
+    if sector2:
         import config_sector_v2 as cfg
         from data.pipeline_sector_v2      import load_all as _load
         from strategy_sector_v2.backtest  import run as _run, effective_weights as _eff
         _sf = stop_freq
-        def load_all(force=False):
-            prices = _load(force=force)
-            return None, prices
-        def run(macro, prices):    # noqa: F811
-            return _run(prices, stop_freq=_sf)
-        effective_weights = _eff   # noqa: F811
-        return cfg, load_all, run, effective_weights
-    elif sector:
+        def _load_wrap(force=False): return None, _load(force=force)
+        def _run_wrap(macro, prices): return _run(prices, stop_freq=_sf)
+        return Strategy(cfg, _load_wrap, _run_wrap, _eff)
+
+    if sector:
         import config_sector as cfg
-        from data.pipeline_sector       import load_all as _load
-        from strategy_sector.backtest   import run as _run, effective_weights as _eff
-        # Sector run() only takes prices (no macro); wrap for uniform (macro, prices) signature
-        def load_all(force=False):
-            prices = _load(force=force)
-            return None, prices   # macro=None
-        def run(macro, prices):    # noqa: F811
-            return _run(prices)
-        effective_weights = _eff   # noqa: F811
-        return cfg, load_all, run, effective_weights
-    elif v3:
+        from data.pipeline_sector      import load_all as _load
+        from strategy_sector.backtest  import run as _run, effective_weights as _eff
+        def _load_wrap(force=False): return None, _load(force=force)
+        def _run_wrap(macro, prices): return _run(prices)
+        return Strategy(cfg, _load_wrap, _run_wrap, _eff)
+
+    if v3:
         import config_v3 as cfg
-        from data.pipeline_v3    import load_all
+        from data.pipeline_v3     import load_all
         from strategy_v3.backtest import run, effective_weights
-    elif v2:
+        return Strategy(cfg, load_all, run, effective_weights)
+
+    if v2:
         import config_v2 as cfg
-        from data.pipeline_v2    import load_all
+        from data.pipeline_v2     import load_all
         from strategy_v2.backtest import run, effective_weights
-    else:
-        cfg = config
-        from data.pipeline      import load_all
-        from strategy.backtest  import run, effective_weights
-    return cfg, load_all, run, effective_weights
+        return Strategy(cfg, load_all, run, effective_weights)
+
+    # Default: V1 bond strategy
+    from data.pipeline     import load_all
+    from strategy.backtest import run, effective_weights
+    return Strategy(config, load_all, run, effective_weights)
 
 
 # ---------------------------------------------------------------------------
@@ -177,11 +182,11 @@ def _validate_weights(weights: pd.Series, label: str = "weights") -> pd.Series:
 # ---------------------------------------------------------------------------
 
 def cmd_fetch(v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False):
-    cfg, load_all, _, _ = _get_modules(v2, v3, sector, sector2, sector2b)
-    _validate_env(cfg)
+    s = _get_strategy(v2, v3, sector, sector2, sector2b)
+    _validate_env(s.config)
     label = "sector2b" if sector2b else ("sector2" if sector2 else ("sector" if sector else ("v3" if v3 else ("v2" if v2 else "v1"))))
     logger.info("Force-refreshing all %s data...", label)
-    macro, prices = load_all(force=True)
+    macro, prices = s.load(force=True)
     if macro is not None:
         logger.info("Done. macro=%s  prices=%s  range=%s → %s",
                     macro.shape, prices.shape,
@@ -192,20 +197,20 @@ def cmd_fetch(v2: bool = False, v3: bool = False, sector: bool = False, sector2:
 
 
 def cmd_backtest(use_best: bool = False, v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, stop_freq: str = "daily"):
-    cfg, load_all, run, _ = _get_modules(v2, v3, sector, sector2, sector2b, stop_freq=stop_freq)
+    s = _get_strategy(v2, v3, sector, sector2, sector2b, stop_freq=stop_freq)
     if sector2 and stop_freq in ("weekly", "monthly"):
         suffix = f"_sector2_{stop_freq}"
     else:
         suffix = "_sector2b" if sector2b else ("_sector2" if sector2 else ("_sector" if sector else ("_v3" if v3 else ("_v2" if v2 else ""))))
 
     if use_best:
-        _load_best(cfg, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, stop_freq=stop_freq)
+        _load_best(s.config, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, stop_freq=stop_freq)
 
     logger.info("Loading data...")
-    macro, prices = load_all()
+    macro, prices = s.load()
 
     logger.info("Running backtest...")
-    results = run(macro, prices)
+    results = s.run(macro, prices)
 
     print_summary_table(results)
     print("\nMonthly turnover (avg):", f"{results['turnover'].mean():.1%}")
@@ -223,18 +228,19 @@ def cmd_backtest(use_best: bool = False, v2: bool = False, v3: bool = False, sec
 
 
 def cmd_weights(v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, stop_freq: str = "daily"):
-    cfg, load_all, run, effective_weights = _get_modules(v2, v3, sector, sector2, sector2b, stop_freq=stop_freq)
+    s = _get_strategy(v2, v3, sector, sector2, sector2b, stop_freq=stop_freq)
 
-    _load_best(cfg, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, stop_freq=stop_freq)
+    _load_best(s.config, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, stop_freq=stop_freq)
     logger.info("Loading data...")
-    macro, prices = load_all()
+    macro, prices = s.load()
 
-    results  = run(macro, prices)
+    results  = s.run(macro, prices)
     weights  = results["weights"]
     signal_w = weights.iloc[-1]
     as_of    = weights.index[-1].date()
 
-    eff_w = effective_weights(signal_w, prices[cfg.ETF_UNIVERSE])
+    cfg   = s.config
+    eff_w = s.eff_weights(signal_w, prices[cfg.ETF_UNIVERSE])
     eff_w = _validate_weights(eff_w, label="effective weights")
 
     label = " SECTOR2b" if sector2b else (" SECTOR2" if sector2 else (" SECTOR" if sector else (" V3" if v3 else (" V2" if v2 else ""))))
@@ -340,18 +346,19 @@ def cmd_compare():
 def cmd_trade(v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, dry_run: bool = False, stop_freq: str = "daily"):
     from broker.ibkr_client import IBKRClient
 
-    cfg, load_all, run, effective_weights = _get_modules(v2, v3, sector, sector2, sector2b, stop_freq=stop_freq)
+    s = _get_strategy(v2, v3, sector, sector2, sector2b, stop_freq=stop_freq)
+    cfg = s.config
     _validate_env(cfg)
     _load_best(cfg, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, stop_freq=stop_freq)
 
     logger.info("Loading data...")
-    macro, prices = load_all()
+    macro, prices = s.load()
 
     logger.info("Computing effective weights...")
-    results  = run(macro, prices)
+    results  = s.run(macro, prices)
     signal_w = results["weights"].iloc[-1]
     as_of    = results["weights"].index[-1].date()
-    eff_w    = effective_weights(signal_w, prices[cfg.ETF_UNIVERSE])
+    eff_w    = s.eff_weights(signal_w, prices[cfg.ETF_UNIVERSE])
     eff_w    = _validate_weights(eff_w, label="effective weights")
 
     label = " SECTOR2b" if sector2b else (" SECTOR2" if sector2 else (" SECTOR" if sector else (" V3" if v3 else (" V2" if v2 else ""))))
@@ -464,7 +471,7 @@ def main():
     sector2   = getattr(args, "sector2",   False)
     sector2b  = getattr(args, "sector2b",  False)
     stop_freq = getattr(args, "stop_freq", "daily")
-    cfg       = _get_modules(v2, v3, sector, sector2, sector2b, stop_freq=stop_freq)[0]
+    cfg = _get_strategy(v2, v3, sector, sector2, sector2b, stop_freq=stop_freq).config
 
     _setup_logging(v2=v2, v3=v3, sector2=sector2 or sector2b)
 

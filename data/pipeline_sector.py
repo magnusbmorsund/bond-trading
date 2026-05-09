@@ -1,91 +1,16 @@
-"""
-Data pipeline for the sector rotation strategy.
-No FRED required — pure price-based signals.
-"""
+"""Data pipeline for the V1 sector rotation strategy."""
 import os
-import logging
-import pandas as pd
-import numpy as np
-import yfinance as yf
-
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import config_sector as config
+from data.pipeline_sector_base import load_all as _base_load_all
 
-logger = logging.getLogger(__name__)
-
-
-def _price_is_fresh(last_date: pd.Timestamp) -> bool:
-    today     = pd.Timestamp.today().normalize()
-    last_bday = pd.Timestamp(np.busday_offset(today.date(), 0, roll="backward"))
-    return last_date.normalize() >= last_bday
+_LABEL = "sector"
+_CACHE = "sector_prices.csv"
 
 
-def _cache_path() -> str:
-    os.makedirs(config.DATA_DIR, exist_ok=True)
-    return os.path.join(config.DATA_DIR, "sector_prices.csv")
-
-
-def _sanity_check(prices: pd.DataFrame) -> None:
-    daily_ret = prices.pct_change()
-    spikes    = daily_ret.abs() > config.PRICE_SPIKE_THRESHOLD
-    for etf in spikes.columns:
-        spike_dates = spikes[etf][spikes[etf]].index
-        for dt in spike_dates:
-            logger.warning("Price spike: %s on %s moved %+.1f%%",
-                           etf, dt.date(), daily_ret.loc[dt, etf] * 100)
-
-
-def fetch_sector_prices(start: str = None, force: bool = False) -> pd.DataFrame:
-    """
-    Return adjusted close prices for all sector ETFs + SPY as a DataFrame.
-    Cached in data/cache/sector_prices.csv; refreshed when stale.
-    """
-    start  = start or config.BACKTEST_START
-    tickers = config.ALL_TICKERS
-    path   = _cache_path()
-
-    if not force and os.path.exists(path):
-        cached = pd.read_csv(path, index_col=0, parse_dates=True)
-        if _price_is_fresh(cached.index[-1]):
-            missing = set(tickers) - set(cached.columns)
-            if not missing:
-                return cached
-
-    raw    = yf.download(tickers, start=start, auto_adjust=True, progress=False)
-    prices = raw["Close"]
-    if isinstance(prices, pd.Series):
-        prices = prices.to_frame()
-
-    _sanity_check(prices)
-    prices.to_csv(path)
-    logger.info("Fetched sector prices: %d tickers × %d days", len(tickers), len(prices))
-    return prices
-
-
-def load_all(force: bool = False) -> pd.DataFrame:
-    """
-    Returns a single DataFrame of adjusted closes for all sector ETFs + SPY.
-    Rows = trading days, columns = tickers.
-    """
-    prices = fetch_sector_prices(force=force)
-
-    missing = set(config.ALL_TICKERS) - set(prices.columns)
-    if missing:
-        logger.warning("Missing tickers in price data: %s", sorted(missing))
-
-    today = pd.Timestamp.today()
-    age   = (today - prices.index[-1]).days
-    if age > 3:
-        logger.warning("Sector price data last date is %s (%d days ago)",
-                       prices.index[-1].date(), age)
-    else:
-        logger.info("Sector price data last date: %s (%d day(s) ago)",
-                    prices.index[-1].date(), age)
-
-    logger.info("Sector data loaded — %s rows, %s → %s",
-                len(prices), prices.index[0].date(), prices.index[-1].date())
-    return prices
+def load_all(force: bool = False):
+    return _base_load_all(config, _CACHE, _LABEL, force=force)
 
 
 if __name__ == "__main__":
