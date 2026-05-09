@@ -78,8 +78,16 @@ def _setup_logging(v2: bool = False, v3: bool = False, sector2: bool = False):
 
 def _get_strategy(v2: bool, v3: bool = False, sector: bool = False,
                   sector2: bool = False, sector2b: bool = False,
-                  stop_freq: str = "daily") -> Strategy:
+                  sector2c: bool = False, stop_freq: str = "daily") -> Strategy:
     """Resolve config, pipeline, and backtest for the requested strategy variant."""
+    if sector2c:
+        import config_sector_v2c as cfg
+        from data.pipeline_sector_v2c     import load_all as _load
+        from strategy_sector_v2c.backtest import run as _run, effective_weights as _eff
+        def _load_wrap(force=False): return None, _load(force=force)
+        def _run_wrap(macro, prices): return _run(prices)
+        return Strategy(cfg, _load_wrap, _run_wrap, _eff)
+
     if sector2b:
         import config_sector_v2b as cfg
         from data.pipeline_sector_v2b     import load_all as _load
@@ -142,15 +150,15 @@ def _validate_env(cfg):
         )
 
 
-def _load_best(cfg, v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, stop_freq: str = "daily"):
+def _load_best(cfg, v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, sector2c: bool = False, stop_freq: str = "daily"):
     """Monkey-patch cfg with saved optimised params."""
     if sector2 and stop_freq in ("weekly", "monthly"):
         suffix = f"_sector2_{stop_freq}"
     else:
-        suffix = "_sector2b" if sector2b else ("_sector2" if sector2 else ("_sector" if sector else ("_v3" if v3 else ("_v2" if v2 else ""))))
+        suffix = "_sector2c" if sector2c else ("_sector2b" if sector2b else ("_sector2" if sector2 else ("_sector" if sector else ("_v3" if v3 else ("_v2" if v2 else "")))))
     path   = os.path.join(os.path.dirname(__file__), f"best_params{suffix}.json")
     if not os.path.exists(path):
-        flag = "  --sector2" if sector2 else ("  --sector" if sector else ("  --v3" if v3 else ("  --v2" if v2 else "")))
+        flag = "  --sector2c" if sector2c else ("  --sector2" if sector2 else ("  --sector" if sector else ("  --v3" if v3 else ("  --v2" if v2 else ""))))
         raise FileNotFoundError(
             f"{os.path.basename(path)} not found — run: python main.py optimize{flag}"
         )
@@ -181,10 +189,10 @@ def _validate_weights(weights: pd.Series, label: str = "weights") -> pd.Series:
 # Commands
 # ---------------------------------------------------------------------------
 
-def cmd_fetch(v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False):
-    s = _get_strategy(v2, v3, sector, sector2, sector2b)
+def cmd_fetch(v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, sector2c: bool = False):
+    s = _get_strategy(v2, v3, sector, sector2, sector2b, sector2c)
     _validate_env(s.config)
-    label = "sector2b" if sector2b else ("sector2" if sector2 else ("sector" if sector else ("v3" if v3 else ("v2" if v2 else "v1"))))
+    label = "sector2c" if sector2c else ("sector2b" if sector2b else ("sector2" if sector2 else ("sector" if sector else ("v3" if v3 else ("v2" if v2 else "v1")))))
     logger.info("Force-refreshing all %s data...", label)
     macro, prices = s.load(force=True)
     if macro is not None:
@@ -196,15 +204,15 @@ def cmd_fetch(v2: bool = False, v3: bool = False, sector: bool = False, sector2:
                     prices.shape, prices.index[0].date(), prices.index[-1].date())
 
 
-def cmd_backtest(use_best: bool = False, v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, stop_freq: str = "daily"):
-    s = _get_strategy(v2, v3, sector, sector2, sector2b, stop_freq=stop_freq)
+def cmd_backtest(use_best: bool = False, v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, sector2c: bool = False, stop_freq: str = "daily"):
+    s = _get_strategy(v2, v3, sector, sector2, sector2b, sector2c, stop_freq=stop_freq)
     if sector2 and stop_freq in ("weekly", "monthly"):
         suffix = f"_sector2_{stop_freq}"
     else:
-        suffix = "_sector2b" if sector2b else ("_sector2" if sector2 else ("_sector" if sector else ("_v3" if v3 else ("_v2" if v2 else ""))))
+        suffix = "_sector2c" if sector2c else ("_sector2b" if sector2b else ("_sector2" if sector2 else ("_sector" if sector else ("_v3" if v3 else ("_v2" if v2 else "")))))
 
     if use_best:
-        _load_best(s.config, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, stop_freq=stop_freq)
+        _load_best(s.config, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, sector2c=sector2c, stop_freq=stop_freq)
 
     logger.info("Loading data...")
     macro, prices = s.load()
@@ -227,10 +235,10 @@ def cmd_backtest(use_best: bool = False, v2: bool = False, v3: bool = False, sec
     plot_annual_allocations(results, save_path=os.path.join(base, f"annual_allocations{suffix}.png"))
 
 
-def cmd_weights(v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, stop_freq: str = "daily"):
-    s = _get_strategy(v2, v3, sector, sector2, sector2b, stop_freq=stop_freq)
+def cmd_weights(v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, sector2c: bool = False, stop_freq: str = "daily"):
+    s = _get_strategy(v2, v3, sector, sector2, sector2b, sector2c, stop_freq=stop_freq)
 
-    _load_best(s.config, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, stop_freq=stop_freq)
+    _load_best(s.config, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, sector2c=sector2c, stop_freq=stop_freq)
     logger.info("Loading data...")
     macro, prices = s.load()
 
@@ -243,7 +251,7 @@ def cmd_weights(v2: bool = False, v3: bool = False, sector: bool = False, sector
     eff_w = s.eff_weights(signal_w, prices[cfg.ETF_UNIVERSE])
     eff_w = _validate_weights(eff_w, label="effective weights")
 
-    label = " SECTOR2b" if sector2b else (" SECTOR2" if sector2 else (" SECTOR" if sector else (" V3" if v3 else (" V2" if v2 else ""))))
+    label = " SECTOR2c" if sector2c else (" SECTOR2b" if sector2b else (" SECTOR2" if sector2 else (" SECTOR" if sector else (" V3" if v3 else (" V2" if v2 else "")))))
     print(f"\n{'='*45}")
     print(f"SIGNAL WEIGHTS{label}  (model, as of {as_of})")
     print(f"{'='*45}")
@@ -261,11 +269,13 @@ def cmd_weights(v2: bool = False, v3: bool = False, sector: bool = False, sector
     print(f"  {'─'*40}")
     print(f"  {'Sum':>4s}  {eff_w.sum():6.2%}")
     print(f"\nFor IBKR: set each ETF as % of total portfolio value above.")
-    if sector2b or sector2:
-        rebal_word = "weekly" if sector2b else "monthly"
-        rebal_freq = getattr(cfg, "REBALANCE_FREQ", "W" if sector2b else "ME")
+    if sector2c or sector2b or sector2:
+        rebal_word = "weekly" if (sector2c or sector2b) else "monthly"
+        rebal_freq = getattr(cfg, "REBALANCE_FREQ", "W" if (sector2c or sector2b) else "ME")
         print(f"Trailing stop: adaptive (tactical {cfg.STOP_TACTICAL:.0%} → supercycle {cfg.STOP_SUPERCYCLE:.0%}), {cfg.TRAILING_STOP_WINDOW}-day peak  |  rebalance: {rebal_freq}")
-        if sector2b:
+        if sector2c:
+            from strategy_sector_v2c.backtest import compute_stop_pcts
+        elif sector2b:
             from strategy_sector_v2b.backtest import compute_stop_pcts
         else:
             from strategy_sector_v2.backtest import compute_stop_pcts
@@ -343,13 +353,13 @@ def cmd_compare():
     plot_comparison(results_v1, results_v2, results_v3, save_path=save_path)
 
 
-def cmd_trade(v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, dry_run: bool = False, stop_freq: str = "daily"):
+def cmd_trade(v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, sector2c: bool = False, dry_run: bool = False, stop_freq: str = "daily"):
     from broker.ibkr_client import IBKRClient
 
-    s = _get_strategy(v2, v3, sector, sector2, sector2b, stop_freq=stop_freq)
+    s = _get_strategy(v2, v3, sector, sector2, sector2b, sector2c, stop_freq=stop_freq)
     cfg = s.config
     _validate_env(cfg)
-    _load_best(cfg, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, stop_freq=stop_freq)
+    _load_best(cfg, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, sector2c=sector2c, stop_freq=stop_freq)
 
     logger.info("Loading data...")
     macro, prices = s.load()
@@ -361,7 +371,7 @@ def cmd_trade(v2: bool = False, v3: bool = False, sector: bool = False, sector2:
     eff_w    = s.eff_weights(signal_w, prices[cfg.ETF_UNIVERSE])
     eff_w    = _validate_weights(eff_w, label="effective weights")
 
-    label = " SECTOR2b" if sector2b else (" SECTOR2" if sector2 else (" SECTOR" if sector else (" V3" if v3 else (" V2" if v2 else ""))))
+    label = " SECTOR2c" if sector2c else (" SECTOR2b" if sector2b else (" SECTOR2" if sector2 else (" SECTOR" if sector else (" V3" if v3 else (" V2" if v2 else "")))))
     logger.info("Target weights%s as of %s:", label, as_of)
     for etf, w in eff_w.sort_values(ascending=False).items():
         if w > 0.001:
@@ -401,9 +411,9 @@ def cmd_trade(v2: bool = False, v3: bool = False, sector: bool = False, sector2:
         client.disconnect()
 
 
-def cmd_optimize(n_trials: int = 300, v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, stop_freq: str = "daily"):
+def cmd_optimize(n_trials: int = 300, v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, sector2c: bool = False, stop_freq: str = "daily"):
     from optimize import run_optimization
-    run_optimization(n_trials=n_trials, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, stop_freq=stop_freq)
+    run_optimization(n_trials=n_trials, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, sector2c=sector2c, stop_freq=stop_freq)
 
 
 def main():
@@ -417,6 +427,7 @@ def main():
     p_fetch.add_argument("--sector",   action="store_true", help="Use sector V1 strategy")
     p_fetch.add_argument("--sector2",  action="store_true", help="Use sector V2 strategy")
     p_fetch.add_argument("--sector2b", action="store_true", help="Use sector V2b strategy")
+    p_fetch.add_argument("--sector2c", action="store_true", help="Use sector V2c strategy (cross-asset + cluster caps)")
 
     _STOP_FREQ_HELP = "Stop-loss cadence for sector2 (daily/weekly/monthly, default: daily)"
 
@@ -427,6 +438,7 @@ def main():
     p_bt.add_argument("--sector",     action="store_true", help="Use sector V1 strategy")
     p_bt.add_argument("--sector2",    action="store_true", help="Use sector V2 strategy")
     p_bt.add_argument("--sector2b",   action="store_true", help="Use sector V2b strategy (weekly, expanded)")
+    p_bt.add_argument("--sector2c",   action="store_true", help="Use sector V2c strategy (cross-asset + cluster caps)")
     p_bt.add_argument("--stop-freq",  default="daily", choices=["daily","weekly","monthly"],
                       dest="stop_freq", help=_STOP_FREQ_HELP)
 
@@ -436,6 +448,7 @@ def main():
     p_wt.add_argument("--sector",     action="store_true", help="Use sector V1 strategy")
     p_wt.add_argument("--sector2",    action="store_true", help="Use sector V2 strategy")
     p_wt.add_argument("--sector2b",   action="store_true", help="Use sector V2b strategy")
+    p_wt.add_argument("--sector2c",   action="store_true", help="Use sector V2c strategy")
     p_wt.add_argument("--stop-freq",  default="daily", choices=["daily","weekly","monthly"],
                       dest="stop_freq", help=_STOP_FREQ_HELP)
 
@@ -445,6 +458,7 @@ def main():
     p_trade.add_argument("--sector",    action="store_true", help="Use sector V1 strategy")
     p_trade.add_argument("--sector2",   action="store_true", help="Use sector V2 strategy")
     p_trade.add_argument("--sector2b",  action="store_true", help="Use sector V2b strategy")
+    p_trade.add_argument("--sector2c",  action="store_true", help="Use sector V2c strategy")
     p_trade.add_argument("--stop-freq", default="daily", choices=["daily","weekly","monthly"],
                          dest="stop_freq", help=_STOP_FREQ_HELP)
     p_trade.add_argument("--dry-run",   action="store_true", dest="dry_run",
@@ -460,6 +474,7 @@ def main():
     p_opt.add_argument("--sector",    action="store_true", help="Optimise sector V1 strategy")
     p_opt.add_argument("--sector2",   action="store_true", help="Optimise sector V2 strategy")
     p_opt.add_argument("--sector2b",  action="store_true", help="Optimise sector V2b strategy")
+    p_opt.add_argument("--sector2c",  action="store_true", help="Optimise sector V2c strategy")
     p_opt.add_argument("--stop-freq", default="daily", choices=["daily","weekly","monthly"],
                        dest="stop_freq", help=_STOP_FREQ_HELP)
 
@@ -470,21 +485,22 @@ def main():
     sector    = getattr(args, "sector",    False)
     sector2   = getattr(args, "sector2",   False)
     sector2b  = getattr(args, "sector2b",  False)
+    sector2c  = getattr(args, "sector2c",  False)
     stop_freq = getattr(args, "stop_freq", "daily")
-    cfg = _get_strategy(v2, v3, sector, sector2, sector2b, stop_freq=stop_freq).config
+    cfg = _get_strategy(v2, v3, sector, sector2, sector2b, sector2c, stop_freq=stop_freq).config
 
-    _setup_logging(v2=v2, v3=v3, sector2=sector2 or sector2b)
+    _setup_logging(v2=v2, v3=v3, sector2=sector2 or sector2b or sector2c)
 
-    if args.cmd in ("fetch", "weights", "optimize", "trade") and not sector and not sector2 and not sector2b:
+    if args.cmd in ("fetch", "weights", "optimize", "trade") and not sector and not sector2 and not sector2b and not sector2c:
         _validate_env(cfg)
 
-    if   args.cmd == "fetch":    cmd_fetch(v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b)
-    elif args.cmd == "backtest": cmd_backtest(use_best=args.best, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, stop_freq=stop_freq)
-    elif args.cmd == "weights":  cmd_weights(v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, stop_freq=stop_freq)
-    elif args.cmd == "trade":    cmd_trade(v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, dry_run=args.dry_run, stop_freq=stop_freq)
+    if   args.cmd == "fetch":    cmd_fetch(v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, sector2c=sector2c)
+    elif args.cmd == "backtest": cmd_backtest(use_best=args.best, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, sector2c=sector2c, stop_freq=stop_freq)
+    elif args.cmd == "weights":  cmd_weights(v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, sector2c=sector2c, stop_freq=stop_freq)
+    elif args.cmd == "trade":    cmd_trade(v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, sector2c=sector2c, dry_run=args.dry_run, stop_freq=stop_freq)
     elif args.cmd == "compare":         cmd_compare()
     elif args.cmd == "compare-sector":  cmd_compare_sector()
-    elif args.cmd == "optimize": cmd_optimize(n_trials=args.trials, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, stop_freq=stop_freq)
+    elif args.cmd == "optimize": cmd_optimize(n_trials=args.trials, v2=v2, v3=v3, sector=sector, sector2=sector2, sector2b=sector2b, sector2c=sector2c, stop_freq=stop_freq)
     else:
         parser.print_help()
 
