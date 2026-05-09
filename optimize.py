@@ -23,9 +23,9 @@ import numpy as np
 warnings.filterwarnings("ignore")
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-import config
-from data.pipeline       import load_all
-from strategy.backtest   import run
+import configs.bond_v1 as config
+from data.pipelines.bond_v1       import load_all
+from strategies.bond_v1.backtest   import run
 from analysis.performance import sharpe, max_drawdown, summary
 
 logger = logging.getLogger(__name__)
@@ -195,9 +195,9 @@ def make_objective(macro_train, prices_train, run_fn, cfg, param_space):
 
 def run_optimization(n_trials: int = 300, v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, sector2c: bool = False, stop_freq: str = "daily"):
     if sector2:
-        import config_sector_v2 as cfg_mod
-        from data.pipeline_sector_v2       import load_all as _load_prices
-        from strategy_sector_v2.backtest   import run as _run_sector2
+        import configs.sector_v2 as cfg_mod
+        from data.pipelines.sector_v2       import load_all as _load_prices
+        from strategies.sector_v2.backtest   import run as _run_sector2
         param_space = cfg_mod.PARAM_SPACE
 
         # Per-frequency output file and penalty thresholds.
@@ -301,9 +301,9 @@ def run_optimization(n_trials: int = 300, v2: bool = False, v3: bool = False, se
         return best_params
 
     elif sector2b:
-        import config_sector_v2b as cfg_mod
-        from data.pipeline_sector_v2b      import load_all as _load_prices
-        from strategy_sector_v2b.backtest  import run as _run_sector2b
+        import configs.sector_v2b as cfg_mod
+        from data.pipelines.sector_v2b      import load_all as _load_prices
+        from strategies.sector_v2b.backtest  import run as _run_sector2b
         param_space = cfg_mod.PARAM_SPACE
         best_path   = BEST_PARAMS_SECTOR2B_PATH
         label       = "SECTOR2B"
@@ -387,9 +387,9 @@ def run_optimization(n_trials: int = 300, v2: bool = False, v3: bool = False, se
         return best_params
 
     elif sector2c:
-        import config_sector_v2c as cfg_mod
-        from data.pipeline_sector_v2c      import load_all as _load_prices
-        from strategy_sector_v2c.backtest  import run as _run_sector2c
+        import configs.sector_v2c as cfg_mod
+        from data.pipelines.sector_v2c      import load_all as _load_prices
+        from strategies.sector_v2c.backtest  import run as _run_sector2c
         param_space = cfg_mod.PARAM_SPACE
         best_path   = BEST_PARAMS_SECTOR2C_PATH
         label       = "SECTOR2C"
@@ -473,9 +473,9 @@ def run_optimization(n_trials: int = 300, v2: bool = False, v3: bool = False, se
         return best_params
 
     elif sector:
-        import config_sector as cfg_mod
-        from data.pipeline_sector      import load_all as _load_prices
-        from strategy_sector.backtest  import run as _run_sector
+        import configs.sector_v1 as cfg_mod
+        from data.pipelines.sector_v1      import load_all as _load_prices
+        from strategies.sector_v1.backtest  import run as _run_sector
         param_space = cfg_mod.PARAM_SPACE
         best_path   = BEST_PARAMS_SECTOR_PATH
         label       = "SECTOR"
@@ -559,16 +559,16 @@ def run_optimization(n_trials: int = 300, v2: bool = False, v3: bool = False, se
         return best_params
 
     elif v3:
-        import config_v3 as cfg_mod
-        from data.pipeline_v3    import load_all as _load_all
-        from strategy_v3.backtest import run as _run
+        import configs.bond_v3 as cfg_mod
+        from data.pipelines.bond_v3    import load_all as _load_all
+        from strategies.bond_v3.backtest import run as _run
         param_space = {**PARAM_SPACE, **V3_PARAM_ADDITIONS}
         best_path   = BEST_PARAMS_V3_PATH
         label       = "V3"
     elif v2:
-        import config_v2 as cfg_mod
-        from data.pipeline_v2    import load_all as _load_all
-        from strategy_v2.backtest import run as _run
+        import configs.bond_v2 as cfg_mod
+        from data.pipelines.bond_v2    import load_all as _load_all
+        from strategies.bond_v2.backtest import run as _run
         param_space = {**PARAM_SPACE, **V2_PARAM_ADDITIONS}
         best_path   = BEST_PARAMS_V2_PATH
         label       = "V2"

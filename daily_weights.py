@@ -10,7 +10,7 @@ import logging
 from datetime import date
 
 import pandas as pd
-from strategy.backtest_core import DEFAULT_COST_MODEL
+from strategies.backtest_core import DEFAULT_COST_MODEL
 
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s")
@@ -26,17 +26,17 @@ _MIN_TRADE_PCT = 0.5
 def _compute_weights(version: str):
     """Return (effective_weights Series, as_of date) for a strategy version."""
     if version == "v3":
-        import config_v3 as cfg
-        from data.pipeline_v3 import load_all
-        from strategy_v3.backtest import run, effective_weights
+        import configs.bond_v3 as cfg
+        from data.pipelines.bond_v3 import load_all
+        from strategies.bond_v3.backtest import run, effective_weights
     elif version == "v2":
-        import config_v2 as cfg
-        from data.pipeline_v2 import load_all
-        from strategy_v2.backtest import run, effective_weights
+        import configs.bond_v2 as cfg
+        from data.pipelines.bond_v2 import load_all
+        from strategies.bond_v2.backtest import run, effective_weights
     else:
-        import config as cfg
-        from data.pipeline import load_all
-        from strategy.backtest import run, effective_weights
+        import configs.bond_v1 as cfg
+        from data.pipelines.bond_v1 import load_all
+        from strategies.bond_v1.backtest import run, effective_weights
 
     # Load best params if available
     suffix = f"_{version}" if version != "v1" else ""

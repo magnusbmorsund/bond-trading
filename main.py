@@ -33,7 +33,7 @@ import pandas as pd
 import warnings
 warnings.filterwarnings("ignore")
 
-import config
+import configs.bond_v1 as config
 from analysis.performance import print_summary_table, plot_results, plot_annual_stats, plot_annual_allocations, plot_comparison
 
 logger = logging.getLogger(__name__)
@@ -81,53 +81,53 @@ def _get_strategy(v2: bool, v3: bool = False, sector: bool = False,
                   sector2c: bool = False, stop_freq: str = "daily") -> Strategy:
     """Resolve config, pipeline, and backtest for the requested strategy variant."""
     if sector2c:
-        import config_sector_v2c as cfg
-        from data.pipeline_sector_v2c     import load_all as _load
-        from strategy_sector_v2c.backtest import run as _run, effective_weights as _eff
+        import configs.sector_v2c as cfg
+        from data.pipelines.sector_v2c     import load_all as _load
+        from strategies.sector_v2c.backtest import run as _run, effective_weights as _eff
         def _load_wrap(force=False): return None, _load(force=force)
         def _run_wrap(macro, prices): return _run(prices)
         return Strategy(cfg, _load_wrap, _run_wrap, _eff)
 
     if sector2b:
-        import config_sector_v2b as cfg
-        from data.pipeline_sector_v2b     import load_all as _load
-        from strategy_sector_v2b.backtest import run as _run, effective_weights as _eff
+        import configs.sector_v2b as cfg
+        from data.pipelines.sector_v2b     import load_all as _load
+        from strategies.sector_v2b.backtest import run as _run, effective_weights as _eff
         def _load_wrap(force=False): return None, _load(force=force)
         def _run_wrap(macro, prices): return _run(prices)
         return Strategy(cfg, _load_wrap, _run_wrap, _eff)
 
     if sector2:
-        import config_sector_v2 as cfg
-        from data.pipeline_sector_v2      import load_all as _load
-        from strategy_sector_v2.backtest  import run as _run, effective_weights as _eff
+        import configs.sector_v2 as cfg
+        from data.pipelines.sector_v2      import load_all as _load
+        from strategies.sector_v2.backtest  import run as _run, effective_weights as _eff
         _sf = stop_freq
         def _load_wrap(force=False): return None, _load(force=force)
         def _run_wrap(macro, prices): return _run(prices, stop_freq=_sf)
         return Strategy(cfg, _load_wrap, _run_wrap, _eff)
 
     if sector:
-        import config_sector as cfg
-        from data.pipeline_sector      import load_all as _load
-        from strategy_sector.backtest  import run as _run, effective_weights as _eff
+        import configs.sector_v1 as cfg
+        from data.pipelines.sector_v1      import load_all as _load
+        from strategies.sector_v1.backtest  import run as _run, effective_weights as _eff
         def _load_wrap(force=False): return None, _load(force=force)
         def _run_wrap(macro, prices): return _run(prices)
         return Strategy(cfg, _load_wrap, _run_wrap, _eff)
 
     if v3:
-        import config_v3 as cfg
-        from data.pipeline_v3     import load_all
-        from strategy_v3.backtest import run, effective_weights
+        import configs.bond_v3 as cfg
+        from data.pipelines.bond_v3     import load_all
+        from strategies.bond_v3.backtest import run, effective_weights
         return Strategy(cfg, load_all, run, effective_weights)
 
     if v2:
-        import config_v2 as cfg
-        from data.pipeline_v2     import load_all
-        from strategy_v2.backtest import run, effective_weights
+        import configs.bond_v2 as cfg
+        from data.pipelines.bond_v2     import load_all
+        from strategies.bond_v2.backtest import run, effective_weights
         return Strategy(cfg, load_all, run, effective_weights)
 
     # Default: V1 bond strategy
-    from data.pipeline     import load_all
-    from strategy.backtest import run, effective_weights
+    from data.pipelines.bond_v1     import load_all
+    from strategies.bond_v1.backtest import run, effective_weights
     return Strategy(config, load_all, run, effective_weights)
 
 
@@ -274,11 +274,11 @@ def cmd_weights(v2: bool = False, v3: bool = False, sector: bool = False, sector
         rebal_freq = getattr(cfg, "REBALANCE_FREQ", "W" if (sector2c or sector2b) else "ME")
         print(f"Trailing stop: adaptive (tactical {cfg.STOP_TACTICAL:.0%} → supercycle {cfg.STOP_SUPERCYCLE:.0%}), {cfg.TRAILING_STOP_WINDOW}-day peak  |  rebalance: {rebal_freq}")
         if sector2c:
-            from strategy_sector_v2c.backtest import compute_stop_pcts
+            from strategies.sector_v2c.backtest import compute_stop_pcts
         elif sector2b:
-            from strategy_sector_v2b.backtest import compute_stop_pcts
+            from strategies.sector_v2b.backtest import compute_stop_pcts
         else:
-            from strategy_sector_v2.backtest import compute_stop_pcts
+            from strategies.sector_v2.backtest import compute_stop_pcts
         stop_df = compute_stop_pcts(eff_w, prices[cfg.ETF_UNIVERSE])
         if not stop_df.empty:
             print(f"\n{'='*65}")
@@ -304,11 +304,12 @@ def cmd_weights(v2: bool = False, v3: bool = False, sector: bool = False, sector
 
 def cmd_compare_sector():
     """Run Sector V2 (monthly) and V2b (weekly) with best params → sector_comparison.png."""
-    import config_sector_v2 as cfg2, config_sector_v2b as cfg2b
-    from data.pipeline_sector_v2  import load_all as load2
-    from data.pipeline_sector_v2b import load_all as load2b
-    from strategy_sector_v2.backtest  import run as run2
-    from strategy_sector_v2b.backtest import run as run2b
+    import configs.sector_v2 as cfg2
+    import configs.sector_v2b as cfg2b
+    from data.pipelines.sector_v2  import load_all as load2
+    from data.pipelines.sector_v2b import load_all as load2b
+    from strategies.sector_v2.backtest  import run as run2
+    from strategies.sector_v2b.backtest import run as run2b
     from analysis.performance import plot_sector_comparison
 
     _load_best(cfg2,  sector2=True)
@@ -327,16 +328,17 @@ def cmd_compare_sector():
 
 def cmd_compare():
     """Run V1, V2, and V3 with best params and produce a side-by-side comparison chart."""
-    import config_v2, config_v3
-    from data.pipeline_v2     import load_all as load_all_v2
-    from data.pipeline_v3     import load_all as load_all_v3
-    from strategy_v2.backtest import run as run_v2
-    from strategy_v3.backtest import run as run_v3
+    import configs.bond_v2 as config_v2
+    import configs.bond_v3 as config_v3
+    from data.pipelines.bond_v2     import load_all as load_all_v2
+    from data.pipelines.bond_v3     import load_all as load_all_v3
+    from strategies.bond_v2.backtest import run as run_v2
+    from strategies.bond_v3.backtest import run as run_v3
 
     logger.info("Loading V1 data...")
     _load_best(config, v2=False)
-    macro1, prices1 = __import__("data.pipeline", fromlist=["load_all"]).load_all()
-    results_v1 = __import__("strategy.backtest", fromlist=["run"]).run(macro1, prices1)
+    macro1, prices1 = __import__("data.pipelines.bond_v1", fromlist=["load_all"]).load_all()
+    results_v1 = __import__("strategies.bond_v1.backtest", fromlist=["run"]).run(macro1, prices1)
 
     logger.info("Loading V2 data...")
     _load_best(config_v2, v2=True)

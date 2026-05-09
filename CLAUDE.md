@@ -2,7 +2,7 @@
 
 ## Architecture
 
-All parameters flow through `config.py`. Optuna patches `config` attributes at runtime via `setattr(config, k, v)` — this is why every module does `import config` and reads `config.X` at call time (never `from config import X` for any tunable parameter).
+All parameters flow through `configs/bond_v1.py` (and the equivalent file for each strategy variant). Optuna patches config attributes at runtime via `setattr(config, k, v)` — this is why every module does `import configs.bond_v1 as config` and reads `config.X` at call time (never `from configs.bond_v1 import X` for any tunable parameter).
 
 ## Key Design Decisions
 
@@ -22,10 +22,11 @@ During severe rate-hike environments (e.g., 2022), ALL duration/credit ETFs can 
 
 | Module | Owns | Does NOT own |
 |--------|------|-------------|
-| `config.py` | All tunable parameters | Logic |
-| `signals.py` | FRED data → z-scores (daily) | Weight decisions |
-| `portfolio.py` | Z-scores + momentum → monthly weights | Daily adjustments |
-| `backtest.py` | Daily returns, trailing stops, vol target, DD overlay | Signal computation |
+| `configs/bond_v1.py` | All tunable parameters | Logic |
+| `strategies/bond_v1/signals.py` | FRED data → z-scores (daily) | Weight decisions |
+| `strategies/bond_v1/portfolio.py` | Z-scores + momentum → monthly weights | Daily adjustments |
+| `strategies/bond_v1/backtest.py` | Daily returns, trailing stops, vol target, DD overlay | Signal computation |
+| `strategies/backtest_core.py` | Shared backtest building blocks (vol_scale, DD overlay, trailing stops) | Strategy-specific logic |
 | `optimize.py` | Optuna search loop | Strategy logic |
 | `main.py` | CLI parsing, orchestration | Business logic |
 
@@ -81,14 +82,14 @@ Searches over ~25 parameters (lookbacks, allocation caps, signal weights, traili
 ## Extending the Strategy
 
 **Adding a new FRED signal:**
-1. Add series to `FRED_SERIES` in `config.py`
-2. Add signal function in `signals.py` following the `_zscore()` pattern
-3. Add weight constant to `config.py` (e.g., `W_DURATION_NEWVAR = 0.10`)
+1. Add series to `FRED_SERIES` in `configs/bond_v1.py`
+2. Add signal function in `strategies/bond_v1/signals.py` following the `_zscore()` pattern
+3. Add weight constant to `configs/bond_v1.py` (e.g., `W_DURATION_NEWVAR = 0.10`)
 4. Add to the composite in `compute_all_macro()`
 5. Add to `PARAM_SPACE` in `optimize.py` to make it tunable
 
 **Adding a new ETF:**
-1. Add ticker to the appropriate list in `config.py` (e.g., `CREDIT_ETFS`)
+1. Add ticker to the appropriate list in `configs/bond_v1.py` (e.g., `CREDIT_ETFS`)
 2. Delete `data/cache/etf_prices.csv` and run `python main.py fetch` to re-download
 3. The momentum filter, inverse-vol weighting, and blending apply automatically
 
@@ -103,23 +104,22 @@ Searches over ~25 parameters (lookbacks, allocation caps, signal weights, traili
 
 A separate strategy family (Sector V1, V2, V2b) runs pure momentum on a broad ETF universe with no FRED signals. It lives in its own modules to keep Optuna config patching isolated from the bond strategy.
 
-### Why `strategy_sector_v2b/` is a separate package
+### Why `strategies/sector_v2b/` is a separate package
 
-`config_sector_v2b.py` is a standalone module — not `config.py`. Optuna patches it via `setattr(config_sector_v2b, k, v)` at runtime, identical to the bond-strategy pattern. Keeping sector configs in a separate file means `import config` in bond modules is never shadowed and trial state never bleeds across strategies.
+`configs/sector_v2b.py` is a standalone module — not `configs/bond_v1.py`. Optuna patches it via `setattr(config_sector_v2b, k, v)` at runtime, identical to the bond-strategy pattern. Keeping sector configs in a separate file means `import configs.bond_v1 as config` in bond modules is never shadowed and trial state never bleeds across strategies.
 
 ### Module Responsibilities (Sector V2b)
 
 | Module | Owns | Does NOT own |
 |--------|------|-------------|
-| `config_sector_v2b.py` | All sector V2b tunable parameters | Logic |
-| `data/pipeline_sector_v2b.py` | Price download + weekly resampling | Signal computation |
-| `strategy_sector_v2b/portfolio.py` | Multi-timescale momentum → weekly weights | Daily adjustments |
-| `strategy_sector_v2b/backtest.py` | Daily returns, adaptive trailing stops, vol target, DD overlay | Signal computation |
-| `strategy_sector_v2b/optimize.py` | Optuna search loop for sector V2b | Strategy logic |
+| `configs/sector_v2b.py` | All sector V2b tunable parameters | Logic |
+| `data/pipelines/sector_v2b.py` | Price download + weekly resampling | Signal computation |
+| `strategies/sector_v2b/portfolio.py` | Multi-timescale momentum → weekly weights | Daily adjustments |
+| `strategies/sector_v2b/backtest.py` | Daily returns, adaptive trailing stops, vol target, DD overlay | Signal computation |
 
 ### Weekly Resampling
 
-`pipeline_sector_v2b.py` calls `resample_to_period_end("W")` to convert daily prices to weekly. This uses `.resample("W").last()` which anchors on **Sunday** by calendar — but then `.values` is assigned back to the actual last trading day index (Friday, or Thursday on short weeks). The result is that rebalance dates are always real trading days, never calendar Sundays.
+`data/pipelines/sector_v2b.py` calls `resample_to_period_end("W")` to convert daily prices to weekly. This uses `.resample("W").last()` which anchors on **Sunday** by calendar — but then `.values` is assigned back to the actual last trading day index (Friday, or Thursday on short weeks). The result is that rebalance dates are always real trading days, never calendar Sundays.
 
 ### Running Sector V2b
 
@@ -138,8 +138,8 @@ After any change to sector portfolio or backtest logic, run:
 ```bash
 python - <<'EOF'
 import warnings; warnings.filterwarnings("ignore")
-from data.pipeline_sector_v2b import load_all
-from strategy_sector_v2b.backtest import run
+from data.pipelines.sector_v2b import load_all
+from strategies.sector_v2b.backtest import run
 from analysis.performance import summary
 
 prices = load_all()
@@ -159,8 +159,8 @@ After any change to signals, portfolio, or backtest logic, run:
 ```bash
 FRED_API_KEY=<key> python - <<'EOF'
 import warnings; warnings.filterwarnings("ignore")
-from data.pipeline import load_all
-from strategy.backtest import run
+from data.pipelines.bond_v1 import load_all
+from strategies.bond_v1.backtest import run
 from analysis.performance import summary
 import pandas as pd
 
