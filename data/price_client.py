@@ -7,9 +7,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from config import ETF_UNIVERSE, DATA_DIR, PRICE_SPIKE_THRESHOLD
+from configs.bond_v1 import ETF_UNIVERSE, DATA_DIR, PRICE_SPIKE_THRESHOLD
 
 logger = logging.getLogger(__name__)
 

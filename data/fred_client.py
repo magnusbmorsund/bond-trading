@@ -7,9 +7,7 @@ import logging
 import pandas as pd
 import fredapi
 
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from config import FRED_API_KEY, FRED_SERIES, DATA_DIR
+from configs.bond_v1 import FRED_API_KEY, FRED_SERIES, DATA_DIR
 
 logger = logging.getLogger(__name__)
 

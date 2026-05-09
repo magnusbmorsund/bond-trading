@@ -303,26 +303,32 @@ def cmd_weights(v2: bool = False, v3: bool = False, sector: bool = False, sector
 
 
 def cmd_compare_sector():
-    """Run Sector V2 (monthly) and V2b (weekly) with best params → sector_comparison.png."""
-    import configs.sector_v2 as cfg2
+    """Run Sector V2 / V2b / V2c with best params → sector_comparison.png."""
+    import configs.sector_v2  as cfg2
     import configs.sector_v2b as cfg2b
+    import configs.sector_v2c as cfg2c
     from data.pipelines.sector_v2  import load_all as load2
     from data.pipelines.sector_v2b import load_all as load2b
+    from data.pipelines.sector_v2c import load_all as load2c
     from strategies.sector_v2.backtest  import run as run2
     from strategies.sector_v2b.backtest import run as run2b
+    from strategies.sector_v2c.backtest import run as run2c
     from analysis.performance import plot_sector_comparison
 
     _load_best(cfg2,  sector2=True)
     _load_best(cfg2b, sector2b=True)
+    _load_best(cfg2c, sector2c=True)
 
     logger.info("Loading V2 sector data...")
     r2  = run2(load2())
     logger.info("Loading V2b sector data...")
     r2b = run2b(load2b())
+    logger.info("Loading V2c sector data...")
+    r2c = run2c(load2c())
 
     save_path = os.path.join(os.path.dirname(__file__), "sector_comparison.png")
     logger.info("Saving sector comparison chart...")
-    plot_sector_comparison(r2, r2b, save_path=save_path)
+    plot_sector_comparison(r2, r2b, r2c, save_path=save_path)
     print(f"Saved → {save_path}")
 
 

@@ -387,44 +387,61 @@ def plot_comparison(results_v1: dict, results_v2: dict, results_v3: dict = None,
     plt.close()
 
 
-def plot_sector_comparison(results_v2: dict, results_v2b: dict, save_path: str = None):
+def plot_sector_comparison(results_v2: dict, results_v2b: dict, results_v2c: dict = None, save_path: str = None):
     """
-    4-panel comparison: Sector V2 (monthly) vs V2b (weekly, expanded universe).
+    4-panel comparison: Sector V2 (monthly) vs V2b (weekly) vs V2c (cross-asset + corr filter).
     Style mirrors strategy_comparison_2011_2026.png: NAV, Drawdown, Rolling Sharpe, Table.
     """
     import matplotlib.ticker as mticker
 
-    fig, axes = plt.subplots(4, 1, figsize=(14, 20),
-                             gridspec_kw={"height_ratios": [3, 2, 2, 2.5]})
+    fig, axes = plt.subplots(4, 1, figsize=(14, 22),
+                             gridspec_kw={"height_ratios": [3, 2, 2, 3]})
     fig.suptitle(
-        "Sector Rotation: V2 (Monthly) vs V2b (Weekly, Expanded Universe)\n"
+        "Sector Rotation: V2 (Monthly) vs V2b (Weekly) vs V2c (Cross-Asset + Corr Filter)\n"
         "2011–2026  |  0% cash on trailing stops",
         fontsize=14, fontweight="bold"
     )
 
     START = "2011-01-01"
-    nav2   = (results_v2["nav"]   * 100_000).loc[START:]
-    nav2b  = (results_v2b["nav"]  * 100_000).loc[START:]
-    navbm  = (results_v2["nav_bm"] * 100_000).loc[START:]
-    # Re-base to 100k at the common start date
-    t0 = max(nav2.index[0], nav2b.index[0], navbm.index[0])
+    nav2  = (results_v2["nav"]    * 100_000).loc[START:]
+    nav2b = (results_v2b["nav"]   * 100_000).loc[START:]
+    navbm = (results_v2["nav_bm"] * 100_000).loc[START:]
+
+    series_list = [nav2, nav2b, navbm]
+    if results_v2c is not None:
+        nav2c = (results_v2c["nav"] * 100_000).loc[START:]
+        series_list.append(nav2c)
+
+    t0 = max(s.index[0] for s in series_list)
     nav2  = nav2.loc[t0:]  / nav2.loc[t0]  * 100_000
     nav2b = nav2b.loc[t0:] / nav2b.loc[t0] * 100_000
     navbm = navbm.loc[t0:] / navbm.loc[t0] * 100_000
+    if results_v2c is not None:
+        nav2c = nav2c.loc[t0:] / nav2c.loc[t0] * 100_000
 
     ret2  = results_v2["daily_returns"].loc[t0:]
     ret2b = results_v2b["daily_returns"].loc[t0:]
     retbm = results_v2["daily_returns_bm"].loc[t0:]
+    if results_v2c is not None:
+        ret2c = results_v2c["daily_returns"].loc[t0:]
 
-    C2, C2B, CBM = "#2196F3", "#FF5722", "#9E9E9E"
+    C2, C2B, C2C, CBM = "#2196F3", "#FF5722", "#4CAF50", "#9E9E9E"
 
     # ── Panel 1: Log-scale NAV ────────────────────────────────────────────
     ax = axes[0]
-    ax.semilogy(nav2.index,  nav2,  label="V2  (monthly)",  color=C2,  linewidth=1.8)
-    ax.semilogy(nav2b.index, nav2b, label="V2b (weekly)",   color=C2B, linewidth=1.8)
-    ax.semilogy(navbm.index, navbm, label="Equal-weight BM",color=CBM, linewidth=1.0, linestyle="--", alpha=0.7)
-    # End labels — offset vertically so they don't collide
-    for series, color, text, mult in [(nav2, C2, "V2", 0.75), (nav2b, C2B, "V2b", 1.35)]:
+    ax.semilogy(nav2.index,  nav2,  label="V2  (monthly)",         color=C2,  linewidth=1.8)
+    ax.semilogy(nav2b.index, nav2b, label="V2b (weekly)",          color=C2B, linewidth=1.8)
+    if results_v2c is not None:
+        ax.semilogy(nav2c.index, nav2c, label="V2c (cross-asset)", color=C2C, linewidth=1.8)
+    ax.semilogy(navbm.index, navbm, label="Equal-weight BM",       color=CBM, linewidth=1.0, linestyle="--", alpha=0.7)
+
+    # End labels — sort by final value, assign vertical offsets to avoid overlap
+    end_labels = [(nav2, C2, "V2"), (nav2b, C2B, "V2b")]
+    if results_v2c is not None:
+        end_labels.append((nav2c, C2C, "V2c"))
+    end_labels.sort(key=lambda x: x[0].iloc[-1])
+    offsets = [0.55, 1.0, 1.6] if len(end_labels) == 3 else [0.75, 1.35]
+    for (series, color, text), mult in zip(end_labels, offsets):
         y = series.iloc[-1]
         ax.annotate(f"  {text}\n  ${y:,.0f}",
                     xy=(series.index[-1], y * mult), color=color,
@@ -442,6 +459,9 @@ def plot_sector_comparison(results_v2: dict, results_v2b: dict, save_path: str =
     ddbm = drawdown_series(navbm)
     ax.fill_between(nav2.index,  dd2,  0, alpha=0.45, label=f"V2   MaxDD {dd2.min():.1%}",  color=C2)
     ax.fill_between(nav2b.index, dd2b, 0, alpha=0.45, label=f"V2b  MaxDD {dd2b.min():.1%}", color=C2B)
+    if results_v2c is not None:
+        dd2c = drawdown_series(nav2c)
+        ax.fill_between(nav2c.index, dd2c, 0, alpha=0.45, label=f"V2c  MaxDD {dd2c.min():.1%}", color=C2C)
     ax.fill_between(navbm.index, ddbm, 0, alpha=0.20, label="Benchmark",                    color=CBM)
     ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1, decimals=0))
     ax.set_ylabel("Drawdown")
@@ -451,7 +471,6 @@ def plot_sector_comparison(results_v2: dict, results_v2b: dict, save_path: str =
 
     # ── Panel 3: Rolling 12-month Sharpe ─────────────────────────────────
     ax = axes[2]
-    # Vectorised rolling Sharpe: avoids slow .apply(lambda)
     def _rolling_sharpe(r, w=252):
         mu  = r.rolling(w).mean()
         sig = r.rolling(w).std()
@@ -462,6 +481,9 @@ def plot_sector_comparison(results_v2: dict, results_v2b: dict, save_path: str =
     rollbm = _rolling_sharpe(retbm)
     ax.plot(roll2.index,  roll2,  label="V2  monthly", color=C2,  linewidth=1.5)
     ax.plot(roll2b.index, roll2b, label="V2b weekly",  color=C2B, linewidth=1.5)
+    if results_v2c is not None:
+        roll2c = _rolling_sharpe(ret2c)
+        ax.plot(roll2c.index, roll2c, label="V2c cross-asset", color=C2C, linewidth=1.5)
     ax.plot(rollbm.index, rollbm, label="Benchmark",   color=CBM, linewidth=0.9, linestyle="--", alpha=0.7)
     ax.axhline(0, color="black", linewidth=0.7, linestyle=":")
     ax.set_ylabel("Sharpe (12m rolling)")
@@ -483,24 +505,30 @@ def plot_sector_comparison(results_v2: dict, results_v2b: dict, save_path: str =
     col_labels = ["Strategy", "Ann. Return", "Sharpe Ratio",
                   "Max Drawdown", "Calmar Ratio", "Worst Month", "Total Return"]
 
+    table_rows = [("V2 (monthly)", s2), ("V2b (weekly)", s2b)]
+    if results_v2c is not None:
+        s2c = summary(ret2c, nav2c / 100_000, "V2c (cross-asset)")
+        table_rows.append(("V2c (cross-asset)", s2c))
+    table_rows.append(("EW Benchmark", sbm))
+
     rows = []
-    for lbl, s in [("V2 (monthly)", s2), ("V2b (weekly)", s2b), ("EW Benchmark", sbm)]:
+    for lbl, s in table_rows:
         rows.append([lbl] + [s[m] for m in metrics])
 
     tbl = ax.table(cellText=rows, colLabels=col_labels, cellLoc="center", loc="center")
     tbl.auto_set_font_size(False)
     tbl.set_fontsize(11)
-    tbl.scale(1, 2.5)
+    tbl.scale(1, 2.2)
 
-    row_colors = ["#E3F2FD", "#FBE9E7", "#F5F5F5"]
-    for row_i, row_color in enumerate(row_colors):
+    all_row_colors = ["#E3F2FD", "#FBE9E7", "#E8F5E9", "#F5F5F5"]
+    for row_i in range(len(rows)):
         for col in range(len(col_labels)):
-            tbl[row_i + 1, col].set_facecolor(row_color)
+            tbl[row_i + 1, col].set_facecolor(all_row_colors[row_i])
     for col in range(len(col_labels)):
         tbl[0, col].set_facecolor("#343a40")
         tbl[0, col].set_text_props(color="white", fontweight="bold")
 
-    ax.set_title(f"Summary Statistics  (2011–2026, 0% cash on stops)",
+    ax.set_title("Summary Statistics  (2011–2026, 0% cash on stops)",
                  fontsize=11, fontweight="bold", pad=12)
 
     for ax in axes[:3]:
