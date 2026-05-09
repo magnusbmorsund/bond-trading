@@ -1,4 +1,79 @@
-# Bond + Commodities Rotation Strategy
+# Multi-Strategy Systematic Trading
+
+Two independent strategy families: a **macro-driven bond + commodities rotation** (V1/V2/V3) and a **pure-momentum sector rotation** (Sector V1/V2/V2b). Both run daily trailing stops and share the same backtesting and optimisation infrastructure.
+
+---
+
+## Sector Rotation Strategy (V2b)
+
+Pure multi-timescale momentum across 37 ETFs. No FRED signals — price alone drives all decisions. Weekly rebalancing with daily adaptive trailing stops placed natively at the broker.
+
+### Performance (2010–2026 backtest, optimised params)
+
+| Metric               | Sector V1 | Sector V2 | Sector V2b |
+|---------------------|-----------|-----------|------------|
+| **CAGR**            | —         | **43.9%** | **45.0%**  |
+| Sharpe (CAGR / vol) | —         | 2.93      | **3.03**   |
+| Max Drawdown        | —         | -8.2%     | **-7.0%**  |
+| Total Return        | —         | —         | **42,815%**|
+| ETF universe        | —         | 32        | **37**     |
+| Rebalance frequency | —         | Monthly   | **Weekly** |
+| OOS CAGR (2021-26)  | —         | —         | **42.2%**  |
+| OOS Sharpe (2021-26)| —         | —         | **3.06**   |
+
+All 16 years 2011-2026 positive. OOS figures confirm no overfitting (in-sample ends 2020).
+
+<details>
+<summary>Year-by-year returns (Sector V2b)</summary>
+
+| Year | Return |
+|------|--------|
+| 2011 | +2.1%  |
+| 2012 | +30.8% |
+| 2013 | +69.9% |
+| 2014 | +42.0% |
+| 2015 | +35.5% |
+| 2016 | +76.8% |
+| 2017 | +57.6% |
+| 2018 | +32.7% |
+| 2019 | +37.2% |
+| 2020 | +122.2%|
+| 2021 | +51.8% |
+| 2022 | +2.6%  |
+| 2023 | +39.5% |
+| 2024 | +61.4% |
+| 2025 | +93.1% |
+| 2026 (partial) | +29.0% |
+
+</details>
+
+### How It Works
+
+**Multi-timescale momentum** — each ETF is scored on short, medium, and long lookbacks simultaneously. Only the top `N_POSITIONS` ETFs by composite score enter the portfolio; the rest move to cash (or SHY). Inverse-vol weighting within the selected set, capped at `MAX_WEIGHT` per position.
+
+**Adaptive trailing stops** — two stop layers: a tactical stop (`STOP_TACTICAL=4%`) for near-term drawdown protection and a supercycle stop (`STOP_SUPERCYCLE=14%`) that allows riding longer trends. Stops are placed as native broker orders (not soft computed), so intraday execution is possible.
+
+**Supercycle riding** — the `ALPHA_SLOW` parameter (0.72) gives heavy weight to the long-horizon momentum score, which keeps the strategy in structural winners (e.g., GLD 2020, tech ETFs 2023-24) through normal volatility while the tactical stop handles crashes.
+
+**Drawdown overlay** — exits to cash when portfolio drawdown exceeds `DD_THRESHOLD=-14.6%`. Re-enters fully on the first positive day.
+
+**SPY market regime filter** — when SPY is below its `SPY_MA_WINDOW=154` day moving average, position sizing scales down.
+
+### ETF Universe (V2b — 37 ETFs)
+
+V2b adds **GLD, ITA, XBI, TAN, KWEB** relative to V2's 32-ETF universe, capturing gold, aerospace/defence, biotech, clean energy, and Chinese tech as additional momentum sources.
+
+### Sector V2b CLI
+
+```bash
+python main.py weights --sector2b --best      # today's positions
+python main.py backtest --sector2b --best     # full backtest
+python main.py optimize --sector2b --trials 300
+```
+
+---
+
+## Bond + Commodities Rotation Strategy (V1/V2/V3)
 
 Systematic macro-driven rotation across fixed income, commodity, and satellite ETFs. Targets strong risk-adjusted returns with max drawdown below 10%. Runs monthly with daily trailing stops.
 
@@ -171,40 +246,52 @@ Best parameters save to `best_params.json` (V1), `best_params_v2.json` (V2), and
 
 ```
 bond-trading/
-├── config.py               # V1 parameters
-├── config_v2.py            # V2 parameters (SLV, VTIP, VNQ, SPY, USD signal)
-├── config_v3.py            # V3 parameters (managed futures DBMF/CTA)
-├── config_v2b.py           # V2b experiment (3-month duration momentum gate)
-├── main.py                 # CLI entry point (--v2/--v3 flag switches strategy)
-├── optimize.py             # Optuna optimisation (supports --v2/--v3)
-├── best_params.json        # V1 production parameters
-├── best_params_v2.json     # V2 production parameters
-├── best_params_v3.json     # V3 production parameters
-├── daily_weights.py        # GitHub Actions: compute + email weights daily
-├── strategy/               # V1 strategy modules
+├── config.py                   # Bond V1 parameters
+├── config_v2.py                # Bond V2 parameters (SLV, VTIP, VNQ, SPY, USD signal)
+├── config_v3.py                # Bond V3 parameters (managed futures DBMF/CTA)
+├── config_v2b.py               # Bond V2b experiment (3-month duration momentum gate)
+├── config_sector_v2.py         # Sector V2 parameters (32 ETFs, monthly)
+├── config_sector_v2b.py        # Sector V2b parameters (37 ETFs, weekly) ← production
+├── main.py                     # CLI entry point (--v2/--v3/--sector2b flags)
+├── optimize.py                 # Optuna optimisation (supports all strategy flags)
+├── best_params.json            # Bond V1 production parameters
+├── best_params_v2.json         # Bond V2 production parameters
+├── best_params_v3.json         # Bond V3 production parameters
+├── best_params_sector2.json    # Sector V2 production parameters
+├── best_params_sector2b.json   # Sector V2b production parameters ← primary
+├── daily_weights.py            # GitHub Actions: compute + email weights daily
+├── strategy/                   # Bond V1 strategy modules
 │   ├── signals.py
 │   ├── portfolio.py
 │   └── backtest.py
-├── strategy_v2/            # V2 strategy modules
-│   ├── signals.py          # + USD signal (DTWEXBGS), ISM fallback
-│   ├── portfolio.py        # + equity satellite, VNQ, VTIP/TIP split
+├── strategy_v2/                # Bond V2 strategy modules
+│   ├── signals.py              # + USD signal (DTWEXBGS), ISM fallback
+│   ├── portfolio.py            # + equity satellite, VNQ, VTIP/TIP split
 │   └── backtest.py
-├── strategy_v3/            # V3 strategy modules (+ managed futures)
+├── strategy_v3/                # Bond V3 strategy modules (+ managed futures)
 │   ├── signals.py
 │   ├── portfolio.py
 │   └── backtest.py
-├── strategy_v2b/           # V2b experiment (not in production)
+├── strategy_v2b/               # Bond V2b experiment (not in production)
 │   ├── signals.py
+│   ├── portfolio.py
+│   └── backtest.py
+├── strategy_sector_v2/         # Sector V2 modules (32 ETFs, monthly)
+│   ├── portfolio.py
+│   └── backtest.py
+├── strategy_sector_v2b/        # Sector V2b modules (37 ETFs, weekly) ← production
 │   ├── portfolio.py
 │   └── backtest.py
 ├── data/
-│   ├── pipeline.py         # V1 data loading
-│   ├── pipeline_v2.py      # V2/V2b data loading (etf_prices_v2.csv cache)
-│   ├── pipeline_v3.py      # V3 data loading (etf_prices_v3.csv cache)
-│   ├── fred_client.py      # FRED API + caching
-│   └── price_client.py     # Yahoo Finance ETF prices + caching
+│   ├── pipeline.py             # Bond V1 data loading
+│   ├── pipeline_v2.py          # Bond V2/V2b data loading (etf_prices_v2.csv cache)
+│   ├── pipeline_v3.py          # Bond V3 data loading (etf_prices_v3.csv cache)
+│   ├── pipeline_sector_v2.py   # Sector V2 data loading (monthly resampling)
+│   ├── pipeline_sector_v2b.py  # Sector V2b data loading (weekly resampling)
+│   ├── fred_client.py          # FRED API + caching
+│   └── price_client.py         # Yahoo Finance ETF prices + caching
 └── analysis/
-    └── performance.py      # Metrics + charts
+    └── performance.py          # Metrics + charts
 ```
 
 ## Key Config Parameters

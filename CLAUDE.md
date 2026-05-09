@@ -99,6 +99,59 @@ Searches over ~25 parameters (lookbacks, allocation caps, signal weights, traili
 - **FRED data lag** — CPI, UNRATE, INDPRO publish with 2-4 week lag. The strategy only uses month-end values, so this is correctly handled by the monthly rebalance.
 - **TED spread discontinued 2023** — TEDRATE from FRED has no data after 2023-01-31. The `ted_stress_signal` returns 0 after that date, effectively dropping that sub-signal. This is handled gracefully.
 
+## Sector Rotation Strategies
+
+A separate strategy family (Sector V1, V2, V2b) runs pure momentum on a broad ETF universe with no FRED signals. It lives in its own modules to keep Optuna config patching isolated from the bond strategy.
+
+### Why `strategy_sector_v2b/` is a separate package
+
+`config_sector_v2b.py` is a standalone module — not `config.py`. Optuna patches it via `setattr(config_sector_v2b, k, v)` at runtime, identical to the bond-strategy pattern. Keeping sector configs in a separate file means `import config` in bond modules is never shadowed and trial state never bleeds across strategies.
+
+### Module Responsibilities (Sector V2b)
+
+| Module | Owns | Does NOT own |
+|--------|------|-------------|
+| `config_sector_v2b.py` | All sector V2b tunable parameters | Logic |
+| `data/pipeline_sector_v2b.py` | Price download + weekly resampling | Signal computation |
+| `strategy_sector_v2b/portfolio.py` | Multi-timescale momentum → weekly weights | Daily adjustments |
+| `strategy_sector_v2b/backtest.py` | Daily returns, adaptive trailing stops, vol target, DD overlay | Signal computation |
+| `strategy_sector_v2b/optimize.py` | Optuna search loop for sector V2b | Strategy logic |
+
+### Weekly Resampling
+
+`pipeline_sector_v2b.py` calls `resample_to_period_end("W")` to convert daily prices to weekly. This uses `.resample("W").last()` which anchors on **Sunday** by calendar — but then `.values` is assigned back to the actual last trading day index (Friday, or Thursday on short weeks). The result is that rebalance dates are always real trading days, never calendar Sundays.
+
+### Running Sector V2b
+
+```bash
+python main.py weights --sector2b --best      # today's IBKR positions
+python main.py backtest --sector2b --best     # full 2010-2026 backtest
+python main.py optimize --sector2b --trials 300
+```
+
+Optimised params live in `best_params_sector2b.json` and are loaded automatically by `--best`. Key params: `N_POSITIONS=4`, `MAX_WEIGHT=15.9%`, `STOP_TACTICAL=4%`, `STOP_SUPERCYCLE=14%`, `TRAILING_STOP_WINDOW=108d`, `DD_THRESHOLD=-14.6%`, `VOL_TARGET=17.0%`, `SPY_MA_WINDOW=154`.
+
+### Testing Sector V2b
+
+After any change to sector portfolio or backtest logic, run:
+
+```bash
+python - <<'EOF'
+import warnings; warnings.filterwarnings("ignore")
+from data.pipeline_sector_v2b import load_all
+from strategy_sector_v2b.backtest import run
+from analysis.performance import summary
+
+prices = load_all()
+res = run(prices)
+
+s = summary(res["daily_returns"], res["nav"], "Sector V2b")
+print(s)
+EOF
+```
+
+Targets (Sector V2b, 2010-2026, optimised params): CAGR > 44%, Sharpe > 2.9, Max Drawdown better than -8%.
+
 ## Testing Changes
 
 After any change to signals, portfolio, or backtest logic, run:
@@ -124,4 +177,4 @@ print(s)
 EOF
 ```
 
-Targets (with optimised params, 2011-2026, cash on stop-outs): CAGR > 19%, Sharpe (CAGR/vol) > 2.9, Max Drawdown better than -11%. Primary return metric is CAGR (geometric), not arithmetic mean×252.
+Targets (bond strategy, optimised params, 2011-2026, cash on stop-outs): CAGR > 19%, Sharpe (CAGR/vol) > 2.9, Max Drawdown better than -11%. Primary return metric is CAGR (geometric), not arithmetic mean×252.
