@@ -109,6 +109,7 @@ BEST_PARAMS_SECTOR2_WEEKLY_PATH   = os.path.join(os.path.dirname(__file__), "bes
 BEST_PARAMS_SECTOR2_MONTHLY_PATH  = os.path.join(os.path.dirname(__file__), "best_params_sector2_monthly.json")
 BEST_PARAMS_SECTOR2B_PATH         = os.path.join(os.path.dirname(__file__), "best_params_sector2b.json")
 BEST_PARAMS_SECTOR2C_PATH         = os.path.join(os.path.dirname(__file__), "best_params_sector2c.json")
+BEST_PARAMS_SECTOR2D_PATH         = os.path.join(os.path.dirname(__file__), "best_params_sector2d.json")
 
 _RETURN_TARGET = 0.10
 
@@ -192,7 +193,7 @@ def make_objective(macro_train, prices_train, run_fn, cfg, param_space):
 # Main
 # ---------------------------------------------------------------------------
 
-def run_optimization(n_trials: int = 300, v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, sector2c: bool = False, stop_freq: str = "daily"):
+def run_optimization(n_trials: int = 300, v2: bool = False, v3: bool = False, sector: bool = False, sector2: bool = False, sector2b: bool = False, sector2c: bool = False, sector2d: bool = False, stop_freq: str = "daily"):
     if sector2:
         import configs.sector_v2 as cfg_mod
         from data.pipelines.sector_v2       import load_all as _load_prices
@@ -456,6 +457,92 @@ def run_optimization(n_trials: int = 300, v2: bool = False, v3: bool = False, se
 
         _restore_defaults(cfg_mod)
         res_base = _run_sector2c(prices_test)
+        s_base   = summary(res_base["daily_returns"], res_base["nav"], f"Default {label} (OOS)")
+        print(f"\nDefault {label} params on same test period:")
+        print(pd.concat([s_test, s_base], axis=1).to_string())
+
+        print("\nBest parameters:")
+        for k, v in best_params.items():
+            default_val = getattr(cfg_mod, k, "N/A")
+            print(f"  {k:<30s} {v!s:>10}   (default: {default_val})")
+
+        with open(best_path, "w") as f:
+            json.dump(best_params, f, indent=2)
+        logger.info("Best %s params saved → %s", label, best_path)
+        print(f"\nSaved → {best_path}")
+        return best_params
+
+    elif sector2d:
+        import configs.sector_v2d as cfg_mod
+        from data.pipelines.sector_v2d      import load_all as _load_prices
+        from strategies.sector_v2d.backtest  import run as _run_sector2d
+        param_space = cfg_mod.PARAM_SPACE
+        best_path   = BEST_PARAMS_SECTOR2D_PATH
+        label       = "SECTOR2D"
+
+        logger.info("Loading sector V2d price data...")
+        prices_all = _load_prices()
+        split = int(len(prices_all) * 0.70)
+        prices_train = prices_all.iloc[:split]
+        prices_test  = prices_all.iloc[split:]
+
+        logger.info(
+            "Train: %s → %s  |  Test: %s → %s",
+            prices_train.index[0].date(), prices_train.index[-1].date(),
+            prices_test.index[0].date(),  prices_test.index[-1].date(),
+        )
+        print(f"[{label}] Train: {prices_train.index[0].date()} → {prices_train.index[-1].date()}")
+        print(f"[{label}] Test : {prices_test.index[0].date()}  → {prices_test.index[-1].date()}")
+        print(f"Running {n_trials} Optuna trials ({label})...\n")
+
+        def sector2d_objective(trial):
+            params = _suggest_params(trial, param_space)
+            _apply_params(params, cfg_mod)
+            try:
+                results = _run_sector2d(prices_train)
+            except Exception as exc:
+                logger.debug("Sector2d trial failed: %s", exc)
+                return -10.0
+            if results is None or len(results["daily_returns"].dropna()) < 252:
+                return -10.0
+            ret = results["daily_returns"].dropna()
+            nav = results["nav"]
+            sr  = sharpe(ret)
+            mdd = max_drawdown(nav)
+            n   = len(ret)
+            ann_ret = float(nav.iloc[-1] ** (252 / n) - 1)
+            dd_penalty     = max(0.0, abs(mdd) - 0.12) * 20.0
+            return_penalty = max(0.0, 0.15 - ann_ret) * 4.0
+            monthly_ret    = (1 + ret).resample("ME").prod() - 1
+            wm_penalty     = max(0.0, -0.07 - float(monthly_ret.min())) * 8.0
+            return sr * ann_ret * 10 - dd_penalty - return_penalty - wm_penalty
+
+        study = optuna.create_study(
+            direction="maximize",
+            sampler=optuna.samplers.TPESampler(seed=42),
+        )
+        study.optimize(sector2d_objective, n_trials=n_trials, show_progress_bar=True)
+
+        best_params = study.best_params
+        best_val    = study.best_value
+        print(f"\nBest train objective ({label}): {best_val:.3f}")
+
+        _apply_params(best_params, cfg_mod)
+        res_train = _run_sector2d(prices_train)
+        res_test  = _run_sector2d(prices_test)
+        _restore_defaults(cfg_mod)
+
+        s_train = summary(res_train["daily_returns"], res_train["nav"], "Train")
+        s_test  = summary(res_test["daily_returns"],  res_test["nav"],  "Test (OOS)")
+
+        print("\n" + "=" * 52)
+        print(f"OPTIMISED {label} — TRAIN vs OUT-OF-SAMPLE")
+        print("=" * 52)
+        print(pd.concat([s_train, s_test], axis=1).to_string())
+        print("=" * 52)
+
+        _restore_defaults(cfg_mod)
+        res_base = _run_sector2d(prices_test)
         s_base   = summary(res_base["daily_returns"], res_base["nav"], f"Default {label} (OOS)")
         print(f"\nDefault {label} params on same test period:")
         print(pd.concat([s_test, s_base], axis=1).to_string())

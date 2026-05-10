@@ -1,6 +1,11 @@
 import os
 from configs.sector_base import *  # noqa: F401,F403
 
+# ── V2c extends the backtest further back than the shared base ────────────────
+# Base sets 2010; we want 2000 so the cache covers data from 2000 and the
+# backtest can start in the early-2000s (signals warm up over 2000-2001).
+BACKTEST_START = "2000-01-01"
+
 # ── V2c universe (V2b + cross-asset diversifiers) ─────────────────────────────
 # V2b base
 SECTOR_CORE   = ["XLE", "XLK", "XLV", "XLF", "XLI", "XLY", "XLP", "XLU", "XLB", "VNQ"]

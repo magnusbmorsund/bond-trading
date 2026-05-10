@@ -545,6 +545,190 @@ def plot_sector_comparison(results_v2: dict, results_v2b: dict, results_v2c: dic
     plt.close()
 
 
+def plot_v2c_extended(results_v2c: dict, results_v2d: dict = None, save_path: str = None):
+    """
+    V2c (+ optional V2d overlay) extended history chart: 2002–present.
+    4 panels: log NAV, drawdown, rolling Sharpe, stats table.
+    Benchmark: equal-weight SECTOR_CORE.
+    """
+    import matplotlib.ticker as mticker
+
+    # SHY/TLT/IEF launched July 2002; start chart from Aug 2002 so cash allocation works cleanly.
+    START = "2002-08-01"
+
+    nav_v2c = (results_v2c["nav"]    * 100_000)
+    nav_bm  = (results_v2c["nav_bm"] * 100_000)
+
+    # Align to first available date >= START
+    candidates = [
+        nav_v2c.loc[nav_v2c.index >= START].index[0],
+        nav_bm.loc[nav_bm.index   >= START].index[0],
+    ]
+    if results_v2d is not None:
+        nav_v2d_raw = results_v2d["nav"] * 100_000
+        candidates.append(nav_v2d_raw.loc[nav_v2d_raw.index >= START].index[0])
+    t0 = max(candidates)
+
+    nav_v2c = nav_v2c.loc[t0:] / nav_v2c.loc[t0] * 100_000
+    nav_bm  = nav_bm.loc[t0:]  / nav_bm.loc[t0]  * 100_000
+
+    ret_v2c = results_v2c["daily_returns"].loc[t0:]
+    ret_bm  = results_v2c["daily_returns_bm"].loc[t0:]
+
+    nav_v2d = ret_v2d = None
+    if results_v2d is not None:
+        nav_v2d = nav_v2d_raw.loc[t0:] / nav_v2d_raw.loc[t0] * 100_000
+        ret_v2d = results_v2d["daily_returns"].loc[t0:]
+
+    end_yr  = nav_v2c.index[-1].year
+    C2C, C2D, CBM = "#4CAF50", "#2196F3", "#9E9E9E"
+
+    title_suffix = " vs V2d (liquid universe)" if results_v2d is not None else ""
+    fig, axes = plt.subplots(4, 1, figsize=(14, 22),
+                             gridspec_kw={"height_ratios": [3, 2, 2, 3]})
+    fig.suptitle(
+        f"Sector V2c{title_suffix} — Extended History  {t0.year}–{end_yr}\n"
+        "Cross-Asset Universe · Cluster Caps · Adaptive Trailing Stops  |  Best Params",
+        fontsize=14, fontweight="bold",
+    )
+
+    # ── Panel 1: Log-scale NAV ────────────────────────────────────────────────
+    ax = axes[0]
+    ax.semilogy(nav_v2c.index, nav_v2c, label="V2c (46 ETFs, incl illiquid)", color=C2C, linewidth=1.8)
+    if nav_v2d is not None:
+        ax.semilogy(nav_v2d.index, nav_v2d, label="V2d (38 ETFs, ≥$100M/day)", color=C2D, linewidth=1.8, linestyle="-.")
+    ax.semilogy(nav_bm.index,  nav_bm,  label="EW Sector Core BM", color=CBM,
+                linewidth=1.0, linestyle="--", alpha=0.7)
+
+    # Universe expansion milestones
+    milestones = [
+        ("2004-11-18", "GLD\n+VNQ"),
+        ("2007-04-04", "HYG\n+Miners"),
+        ("2010-04-19", "~30\nETFs"),
+        ("2019-12-03", "Full\nuniverse"),
+    ]
+    for dt_str, lbl in milestones:
+        dt = pd.Timestamp(dt_str)
+        if dt > nav_v2c.index[0]:
+            ax.axvline(dt, color="#BDBDBD", linewidth=0.8, linestyle=":", alpha=0.6)
+            y_pos = nav_v2c.loc[nav_v2c.index >= dt].iloc[0]
+            ax.text(dt, y_pos * 1.6, lbl, fontsize=7, color="#757575",
+                    ha="center", va="bottom", rotation=0)
+
+    end_v2c = nav_v2c.iloc[-1]
+    end_bm_ = nav_bm.iloc[-1]
+    ax.annotate(f"  V2c\n  ${end_v2c:,.0f}",
+                xy=(nav_v2c.index[-1], end_v2c * 1.5), color=C2C,
+                fontsize=9, fontweight="bold", va="center")
+    if nav_v2d is not None:
+        end_v2d = nav_v2d.iloc[-1]
+        ax.annotate(f"  V2d\n  ${end_v2d:,.0f}",
+                    xy=(nav_v2d.index[-1], end_v2d * 0.85), color=C2D,
+                    fontsize=9, fontweight="bold", va="center")
+    ax.annotate(f"  BM\n  ${end_bm_:,.0f}",
+                xy=(nav_bm.index[-1], end_bm_ * 0.6), color=CBM,
+                fontsize=9, fontweight="bold", va="center")
+
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+    ax.set_ylabel("Portfolio Value  (log scale, start = $100,000)")
+    ax.set_title("Cumulative NAV")
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.25, which="both")
+
+    # ── Panel 2: Drawdown ─────────────────────────────────────────────────────
+    ax = axes[1]
+    dd_v2c = drawdown_series(nav_v2c)
+    dd_bm  = drawdown_series(nav_bm)
+    ax.fill_between(nav_v2c.index, dd_v2c, 0, alpha=0.50,
+                    label=f"V2c  MaxDD {dd_v2c.min():.1%}", color=C2C)
+    if nav_v2d is not None:
+        dd_v2d = drawdown_series(nav_v2d)
+        ax.fill_between(nav_v2d.index, dd_v2d, 0, alpha=0.35,
+                        label=f"V2d  MaxDD {dd_v2d.min():.1%}", color=C2D)
+    ax.fill_between(nav_bm.index,  dd_bm,  0, alpha=0.20,
+                    label=f"BM   MaxDD {dd_bm.min():.1%}",  color=CBM)
+    ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1, decimals=0))
+    ax.set_ylabel("Drawdown")
+    ax.set_title("Drawdown from Peak")
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.25)
+
+    # ── Panel 3: Rolling 12-month Sharpe ─────────────────────────────────────
+    ax = axes[2]
+
+    def _rolling_sharpe(r, w=252):
+        mu  = r.rolling(w).mean()
+        sig = r.rolling(w).std()
+        return (mu / sig * np.sqrt(w)).rename(r.name)
+
+    roll_v2c = _rolling_sharpe(ret_v2c)
+    roll_bm  = _rolling_sharpe(ret_bm)
+    ax.plot(roll_v2c.index, roll_v2c, label="V2c", color=C2C, linewidth=1.5)
+    if ret_v2d is not None:
+        roll_v2d = _rolling_sharpe(ret_v2d)
+        ax.plot(roll_v2d.index, roll_v2d, label="V2d", color=C2D, linewidth=1.5, linestyle="-.")
+    ax.plot(roll_bm.index,  roll_bm,  label="BM",  color=CBM, linewidth=0.9,
+            linestyle="--", alpha=0.7)
+    ax.axhline(0, color="black", linewidth=0.7, linestyle=":")
+    ax.set_ylabel("Sharpe (12m rolling)")
+    ax.set_title("Rolling 12-Month Sharpe Ratio")
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.25)
+
+    # ── Panel 4: Summary stats table ─────────────────────────────────────────
+    ax = axes[3]
+    ax.axis("off")
+
+    s_v2c = summary(ret_v2c, nav_v2c / 100_000, "V2c (cross-asset)")
+    s_bm  = summary(ret_bm,  nav_bm  / 100_000, "EW Sector BM")
+
+    metrics    = ["Ann. Return", "Sharpe Ratio", "Max Drawdown",
+                  "Calmar Ratio", "Worst Month", "Total Return"]
+    col_labels = ["Strategy", "Ann. Return", "Sharpe Ratio",
+                  "Max Drawdown", "Calmar Ratio", "Worst Month", "Total Return"]
+
+    rows = [["V2c (46 ETFs)"] + [s_v2c[m] for m in metrics]]
+    row_colors = ["#E8F5E9"]
+    if nav_v2d is not None:
+        s_v2d = summary(ret_v2d, nav_v2d / 100_000, "V2d (liquid)")
+        rows.append(["V2d (38 ETFs ≥$100M/day)"] + [s_v2d[m] for m in metrics])
+        row_colors.append("#E3F2FD")
+    rows.append(["EW Sector BM"] + [s_bm[m] for m in metrics])
+    row_colors.append("#F5F5F5")
+
+    tbl = ax.table(cellText=rows, colLabels=col_labels, cellLoc="center", loc="center")
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(11)
+    tbl.scale(1, 2.2)
+
+    for row_i, color in enumerate(row_colors):
+        for col in range(len(col_labels)):
+            tbl[row_i + 1, col].set_facecolor(color)
+    for col in range(len(col_labels)):
+        tbl[0, col].set_facecolor("#343a40")
+        tbl[0, col].set_text_props(color="white", fontweight="bold")
+
+    n_etfs_start = 13  # XL9 + EWJ + EWZ + EFA + IBB available in mid-2002
+    ax.set_title(
+        f"Summary Statistics  ({t0.year}–{end_yr})  ·  "
+        f"V2c: 13 ETFs in 2002 → 46 by 2019  |  V2d: liquid-only subset (≥$100M/day)",
+        fontsize=10, fontweight="bold", pad=12,
+    )
+
+    for ax in axes[:3]:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+        ax.xaxis.set_major_locator(mdates.YearLocator(2))
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
+        print(f"  Saved chart → {save_path}")
+    else:
+        plt.show()
+    plt.close()
+
+
 def print_summary_table(results: dict):
     ret    = results["daily_returns"]
     nav    = results["nav"]
