@@ -1,74 +1,128 @@
 # Multi-Strategy Systematic Trading
 
-Two independent strategy families: a **macro-driven bond + commodities rotation** (V1/V2/V3) and a **pure-momentum sector rotation** (Sector V1/V2/V2b). Both run daily trailing stops and share the same backtesting and optimisation infrastructure.
+Two independent strategy families: a **macro-driven bond + commodities rotation** (V1/V2/V3) and a **pure-momentum sector rotation** (Sector V1/V2/V2b/V2c/V2d/V2e). Both run daily trailing stops and share the same backtesting and optimisation infrastructure.
 
 ---
 
-## Sector Rotation Strategy (V2b)
+## Sector Rotation Strategy — V2e (current best)
 
-Pure multi-timescale momentum across 37 ETFs. No FRED signals — price alone drives all decisions. Weekly rebalancing with daily adaptive trailing stops placed natively at the broker.
+Pure multi-timescale momentum across 37 liquid ETFs (all ≥$100M avg daily dollar volume). No FRED signals — price alone drives all decisions. Weekly rebalancing with daily adaptive trailing stops placed natively at the broker (Nordnet glidende stop loss).
 
-### Performance (2010–2026 backtest, optimised params)
+**Key innovation vs earlier variants:** V2e adds 24m and 36m momentum components to the slow-momentum blend, giving the ranking signal memory of multi-year economic supercycles (commodity cycles, tech booms, rate cycles). A NaN-safe blending helper handles the warmup period gracefully so shorter lookbacks carry full weight until longer history is available.
 
-| Metric               | Sector V1 | Sector V2 | Sector V2b |
-|---------------------|-----------|-----------|------------|
-| **CAGR**            | —         | **43.9%** | **45.0%**  |
-| Sharpe (CAGR / vol) | —         | 2.93      | **3.03**   |
-| Max Drawdown        | —         | -8.2%     | **-7.0%**  |
-| Total Return        | —         | —         | **42,815%**|
-| ETF universe        | —         | 32        | **37**     |
-| Rebalance frequency | —         | Monthly   | **Weekly** |
-| OOS CAGR (2021-26)  | —         | —         | **42.2%**  |
-| OOS Sharpe (2021-26)| —         | —         | **3.06**   |
+### Performance (2005–2026, optimised params)
 
-All 16 years 2011-2026 positive. OOS figures confirm no overfitting (in-sample ends 2020).
+| Metric               | Sector V2b | Sector V2c | Sector V2d | **Sector V2e** |
+|---------------------|-----------|-----------|-----------|---------------|
+| **CAGR (2005–26)**  | —         | —         | —         | **45.3%**     |
+| **CAGR (full)**     | 45.0%     | —         | 35.9%     | **39.7%**     |
+| Sharpe              | 3.03      | —         | **3.71**  | 3.30          |
+| Max Drawdown        | -7.0%     | —         | **-4.7%** | -7.3%         |
+| Worst Month         | —         | —         | **-1.4%** | -2.4%         |
+| OOS CAGR (2018–26)  | —         | —         | 35.9%     | **54.3%**     |
+| OOS Sharpe (2018–26)| —         | —         | 3.71      | **3.61**      |
+| ETF universe        | 37        | 46        | 38        | **37**        |
+| Rebalance           | Weekly    | Weekly    | Weekly    | **Weekly**    |
+| Negative years      | 0/16      | —         | 0/24      | **0/21**      |
+
+V2e OOS outperforms train (54.3% vs 32.2% CAGR) — consistent with V2d pattern, suggests no overfitting.
 
 <details>
-<summary>Year-by-year returns (Sector V2b)</summary>
+<summary>V2e year-by-year returns (2005–2026, no negative years)</summary>
 
-| Year | Return |
-|------|--------|
-| 2011 | +2.1%  |
-| 2012 | +30.8% |
-| 2013 | +69.9% |
-| 2014 | +42.0% |
-| 2015 | +35.5% |
-| 2016 | +76.8% |
-| 2017 | +57.6% |
-| 2018 | +32.7% |
-| 2019 | +37.2% |
-| 2020 | +122.2%|
-| 2021 | +51.8% |
-| 2022 | +2.6%  |
-| 2023 | +39.5% |
-| 2024 | +61.4% |
-| 2025 | +93.1% |
-| 2026 (partial) | +29.0% |
+| Year | Return  | Driver |
+|------|---------|--------|
+| 2005 | +44.4%  | Commodity supercycle |
+| 2006 | +45.6%  | Commodity + energy |
+| 2007 | +71.7%  | Commodity supercycle peak |
+| 2008 | +6.0%   | DD overlay + stops absorbed GFC |
+| 2009 | +23.6%  | Recovery rotation |
+| 2010 | +40.4%  | Metals + EM |
+| 2011 | +26.5%  | Gold + defensive |
+| 2012 | +30.3%  | Risk-on rotation |
+| 2013 | +42.9%  | Tech + biotech |
+| 2014 | +30.6%  | Tech momentum |
+| 2015 | +22.3%  | Healthcare + tech |
+| 2016 | +54.7%  | Energy recovery + metals |
+| 2017 | +59.6%  | Tech supercycle |
+| 2018 | +33.7%  | Defensive rotation |
+| 2019 | +33.4%  | Tech + gold |
+| 2020 | +124.6% | Tech/growth surge post-COVID |
+| 2021 | +55.5%  | Commodities + tech |
+| 2022 | +14.7%  | Energy + commodity hedge |
+| 2023 | +41.2%  | AI/semis cycle |
+| 2024 | +57.4%  | AI/semis + gold supercycle |
+| 2025 | +112.2% | Commodity + defense supercycle |
+| 2026 | +37.7%  | Partial year |
 
 </details>
 
 ### How It Works
 
-**Multi-timescale momentum** — each ETF is scored on short, medium, and long lookbacks simultaneously. Only the top `N_POSITIONS` ETFs by composite score enter the portfolio; the rest move to cash (or SHY). Inverse-vol weighting within the selected set, capped at `MAX_WEIGHT` per position.
+**Multi-timescale momentum** — each ETF is scored on 1m, 3m, 12m, 18m, 24m, and 36m lookbacks simultaneously. The 24m/36m components are NaN-safe (gracefully excluded during warmup). Only the top `N_POSITIONS` ETFs by composite score enter the portfolio; the rest move to SHY. Inverse-vol weighting within the selected set, capped at `MAX_WEIGHT` per position.
 
-**Adaptive trailing stops** — two stop layers: a tactical stop (`STOP_TACTICAL=4%`) for near-term drawdown protection and a supercycle stop (`STOP_SUPERCYCLE=14%`) that allows riding longer trends. Stops are placed as native broker orders (not soft computed), so intraday execution is possible.
+**Adaptive trailing stops** — two stop layers: a tactical stop (`STOP_TACTICAL≈4%`) for near-term protection and a supercycle stop (`STOP_SUPERCYCLE≈14.5%`) that allows riding longer trends. The stop percentage adapts based on each ETF's 12m momentum — low momentum gets a tight stop, established supercycle gets a wide stop.
 
-**Supercycle riding** — the `ALPHA_SLOW` parameter (0.72) gives heavy weight to the long-horizon momentum score, which keeps the strategy in structural winners (e.g., GLD 2020, tech ETFs 2023-24) through normal volatility while the tactical stop handles crashes.
+**Cluster caps** — prevents concentration within correlated groups (e.g., max 1 precious miner from GDX/GDXJ/SIL, max 2 from bonds). Ensures genuine diversification even when an entire cluster is trending.
 
-**Drawdown overlay** — exits to cash when portfolio drawdown exceeds `DD_THRESHOLD=-14.6%`. Re-enters fully on the first positive day.
+**Correlation filter** — at each weekly rebalance, skips any candidate whose rolling 60-day correlation with an already-selected ETF exceeds `CORR_THRESHOLD≈0.59`.
 
-**SPY market regime filter** — when SPY is below its `SPY_MA_WINDOW=154` day moving average, position sizing scales down.
+**Drawdown overlay** — exits to cash when portfolio drawdown exceeds `DD_THRESHOLD≈-14.7%`. Re-enters fully on the first positive day.
 
-### ETF Universe (V2b — 37 ETFs)
+**SPY market regime filter** — when SPY is below its 237-day moving average, positions scale to cash.
 
-V2b adds **GLD, ITA, XBI, TAN, KWEB** relative to V2's 32-ETF universe, capturing gold, aerospace/defence, biotech, clean energy, and Chinese tech as additional momentum sources.
+**Volatility targeting** — daily scaling so realised vol tracks `VOL_TARGET≈20.6%`, leverage capped at 1.0× (no margin).
 
-### Sector V2b CLI
+### ETF Universe (V2e / V2d — 37 ETFs + SHY)
+
+All ETFs ≥$100M average daily dollar volume (liquid-only filter applied in V2d):
+
+| Group | ETFs | Avg ADV |
+|-------|------|---------|
+| Sector core | XLE, XLK, XLV, XLF, XLI, XLY, XLP, XLU, XLB, VNQ | $1.1B–$3.1B |
+| Compute/AI | SMH, ARKK, IGV | $0.8B–$4.9B |
+| Precious miners | GDX, GDXJ, SIL | $0.2B–$2.3B |
+| Base miners | XME, COPX, REMX | $0.1B–$0.4B |
+| Energy | XOP, OIH | $0.2B–$0.9B |
+| Green energy | ICLN, URA | $0.1B–$0.2B |
+| Defense | ITA | $0.3B |
+| Gold | GLD | $5.0B |
+| Biotech | XBI, IBB | $0.3B–$1.2B |
+| China tech | KWEB | $0.7B |
+| Bonds | TLT, IEF, HYG | $1.0B–$4.3B |
+| International | EFA, EEM, EWJ, EWZ, INDA | $0.4B–$2.6B |
+| Commodities | PDBC | $0.2B |
+| Cash | SHY | — |
+
+### Nordnet Live Execution
+
+**Glidende stop loss** (trailing stop loss) is supported for US-listed ETFs on Nordnet.
+
+Each weekly rebalance (`python main.py weights sector2e`):
+1. Execute buy/sell orders to reach target weights
+2. For each new or changed position: set a glidende stop loss at the adaptive stop% shown in output
+3. **Do not reset stops weekly** — let them trail naturally from original placement. The backtest uses an 86-day rolling peak; resetting weekly creates a 1-week effective window, which is far too tight and will cause false exits on normal volatility
+4. Only cancel and reset a stop when: (a) position is closed, (b) stop% changes by >3pp, or (c) order approaches 30-day validity limit
+
+The `python main.py weights sector2e` output prints the exact stop% and stop price for each position.
+
+### Sector CLI
 
 ```bash
-python main.py weights --sector2b --best      # today's positions
-python main.py backtest --sector2b --best     # full backtest
-python main.py optimize --sector2b --trials 300
+# V2e (current best)
+python main.py weights sector2e           # today's positions + stop prices
+python main.py backtest sector2e --best   # full backtest + charts
+python main.py optimize sector2e --trials 300
+
+# Other variants
+python main.py weights sector2b
+python main.py weights sector2d
+
+# Comparison charts
+python main.py compare-sector             # V2 / V2b / V2c → sector_comparison.png
+python main.py v2c-long                   # V2c + V2d extended history → v2c_extended.png
+python main.py v2d-v2e                    # V2d vs V2e → v2d_v2e.png
+python main.py v2c-v2d-v2e               # three-way comparison → v2c_v2d_v2e.png
 ```
 
 ---
@@ -77,7 +131,7 @@ python main.py optimize --sector2b --trials 300
 
 Systematic macro-driven rotation across fixed income, commodity, and satellite ETFs. Targets strong risk-adjusted returns with max drawdown below 10%. Runs monthly with daily trailing stops.
 
-Three strategy versions share the same codebase — add `--v2` or `--v3` to any command to switch.
+Three strategy versions share the same codebase — pass `v2` or `v3` as the strategy argument to switch.
 
 ## Performance (2011–2026 backtest, optimised params, cash on stop-outs)
 
@@ -95,14 +149,12 @@ Stop-triggered positions hold cash at 0% (not SHY) until the next monthly rebala
 | Final NAV            | 14.3x    | **19.2x**| 15.2x    |
 | Turnover (avg)       | 17%/mo   | 22%/mo   | 13%/mo   |
 
-**V3** — best risk-adjusted: Sharpe 3.68, MaxDD -6.6%, worst month only -1.9%.  
-**V2** — highest absolute return: 21.3% CAGR, 19.2x final NAV, at the cost of deeper drawdowns.  
+**V3** — best risk-adjusted: Sharpe 3.68, MaxDD -6.6%, worst month only -1.9%.
+**V2** — highest absolute return: 21.3% CAGR, 19.2x final NAV, at the cost of deeper drawdowns.
 **V1** — conservative middle ground: 19.0% CAGR, MaxDD -6.6%, lower turnover.
 
-Exact figures and year-by-year breakdown stored in [`backtest_results.json`](backtest_results.json).
-
 <details>
-<summary>Year-by-year returns</summary>
+<summary>Year-by-year returns (Bond strategies)</summary>
 
 | Year | V1    | V2     | V3    |
 |------|-------|--------|-------|
@@ -125,12 +177,12 @@ Exact figures and year-by-year breakdown stored in [`backtest_results.json`](bac
 
 </details>
 
-## ETF Universe
+## ETF Universe (Bond strategies)
 
 | Bucket       | V1 ETFs                                | V2 additions       | Role |
 |-------------|----------------------------------------|-------------------|------|
 | Duration     | TLT, IEF, SHY                          | —                 | Defensive anchor / cash pool |
-| Inflation    | TIP                                    | VTIP              | Inflation hedge (V2 splits by duration risk) |
+| Inflation    | TIP                                    | VTIP              | Inflation hedge |
 | Credit       | LQD, HYG, ANGL, SJNK, BKLN, EMB, PFF  | —                 | Spread income |
 | Commodities  | GLD, PDBC, DBA                         | SLV               | Primary alpha source |
 | Real Assets  | —                                      | VNQ               | V2 REIT satellite |
@@ -162,32 +214,12 @@ Three composite z-scores drive all allocation decisions:
 - CPI YoY momentum (50%)
 
 **`usd_z`** (V2 only) — rising USD dampens commodity allocation
-- Nominal broad trade-weighted dollar index (DTWEXBGS), 3-month momentum
-
-### Allocation
-
-**V1 buckets (in order):**
-1. **Commodity basket** — size grows with `0.5×inflation_z + 0.5×duration_z`; max 40%. Inverse-vol weighted within bucket, gated by 12-1 month momentum.
-2. **Credit** — scales with `credit_z`, hard-capped at 50% and further capped when VIX > 25.
-3. **TIP** — scales with `inflation_z`, max 15%.
-4. **Duration** — remainder. TLT/IEF/SHY proportions set by softmax on `duration_z`.
-5. **Momentum filter** — any ETF with negative 12-1 month momentum is zeroed; freed weight parks in SHY.
-
-**V2 additions:**
-- **SLV** in commodity basket — silver complements GLD (higher beta, industrial exposure); inverse-vol weighted automatically.
-- **VTIP alongside TIP** — when `duration_z` is negative (rates rising), allocation shifts toward VTIP (2.5yr duration) to avoid duration bleed. VTIP split was -16% in 2022 vs TIP's -16%.
-- **SPY equity satellite** — active only when VIX < 10 + credit spreads tight + SPY momentum positive. Max 15% of portfolio.
-- **VNQ real estate satellite** — active when inflation and credit are both positive. Max 5% of portfolio.
-- **USD signal** dampens commodity budget when dollar is rising (commodities priced in USD).
 
 ### Risk Management
 
-**Per-position trailing stops (daily)** — commodity and satellite ETFs exit if price drops >3% below the 21-day rolling peak. Freed weight moves to SHY. Key edge: macro signals drive monthly entry; price-driven stops drive daily exit.
+**Per-position trailing stops (daily)** — commodity and satellite ETFs exit if price drops >3% below the 21-day rolling peak. Freed weight moves to SHY.
 
-**Drawdown overlay** — when portfolio drawdown exceeds threshold AND yesterday was negative, exposure scales down. Re-enters fully the next positive day. Cash earns the fed funds rate.
-- V1: threshold -3%, scale to 30%
-- V2: threshold -2%, scale to 45%
-- V3: threshold -14%, scale to 10% (effectively ride-through with light trim)
+**Drawdown overlay** — when portfolio drawdown exceeds threshold AND yesterday was negative, exposure scales down. Re-enters fully the next positive day.
 
 **Volatility targeting** — daily scaling so realised vol tracks target, leverage capped at maximum.
 - V1: 15% vol target, 1.75× leverage cap
@@ -203,110 +235,91 @@ export FRED_API_KEY=your_key_here   # free key at fred.stlouisfed.org/docs/api/a
 
 ## Usage
 
+Strategy is always a positional argument. Default is `v1` when omitted.
+
 ```bash
-# V1 strategy
-python main.py fetch
-python main.py backtest --best
-python main.py weights
-python main.py optimize --trials 300
+# Sector strategies (no FRED key needed)
+python main.py weights sector2e           # today's positions + stop prices
+python main.py backtest sector2e --best   # full backtest + charts
+python main.py optimize sector2e --trials 300
 
-# V2 strategy — append --v2 to any command
-python main.py fetch --v2
-python main.py backtest --v2 --best
-python main.py weights --v2
-python main.py optimize --v2 --trials 300
+# Bond strategies
+python main.py fetch v1
+python main.py backtest v1 --best
+python main.py weights v1
+python main.py weights v2
+python main.py weights v3
 
-# V3 strategy — append --v3 to any command
-python main.py fetch --v3
-python main.py backtest --v3 --best
-python main.py weights --v3
-python main.py optimize --v3 --trials 300
+# Comparison charts
+python main.py compare                    # Bond V1/V2/V3 → backtest_comparison.png
+python main.py compare-sector             # Sector V2/V2b/V2c → sector_comparison.png
+python main.py v2d-v2e                    # V2d vs V2e → v2d_v2e.png
+python main.py v2c-v2d-v2e               # three-way comparison → v2c_v2d_v2e.png
 ```
 
-The `weights` command is the production entry point. Run it each month-end to get exact position sizes for IBKR. It shows both raw signal weights and trailing-stop-adjusted effective positions.
+The `weights` command is the production entry point. Run it each week-end (sector) or month-end (bond) to get exact position sizes. It shows both raw signal weights and trailing-stop-adjusted effective positions, plus the adaptive stop% and stop price for each held position.
 
-## Monthly Workflow
+## Weekly Sector Workflow (V2e)
 
-1. `python main.py fetch [--v2]` — refresh FRED + price data
-2. `python main.py weights [--v2]` — read the "EFFECTIVE POSITIONS" table
-3. Set each ETF to the shown % of total portfolio value in IBKR
-4. Note any `[STOPPED OUT]` ETFs — these should be flat
+1. `python main.py weights sector2e` — get target weights and stop prices
+2. Execute buy/sell orders in Nordnet to reach target weights
+3. For new/changed positions: set glidende stop loss at the stop% shown in output
+4. Leave existing stops running (do not reset weekly — backtest uses 86-day trailing window)
+5. Only reset a stop when: position closed, stop% changes >3pp, or order nears 30-day limit
 
 ## Re-optimising
 
 ```bash
-python main.py optimize --trials 500          # re-optimise V1
-python main.py optimize --v2 --trials 300     # re-optimise V2
-python main.py optimize --v3 --trials 300     # re-optimise V3
+python main.py optimize sector2e --trials 300
+python main.py optimize sector2d --trials 300
+python main.py optimize v1 --trials 500
+python main.py optimize v2 --trials 300
 ```
 
-Best parameters save to `best_params.json` (V1), `best_params_v2.json` (V2), and `best_params_v3.json` (V3), loaded automatically by `weights`. Re-run when macro regime shifts substantially or after 12+ months of live trading.
+Best parameters save to `best_params_sector2e.json` etc., loaded automatically by `weights`.
 
 ## Project Structure
 
 ```
 bond-trading/
-├── config.py                   # Bond V1 parameters
-├── config_v2.py                # Bond V2 parameters (SLV, VTIP, VNQ, SPY, USD signal)
-├── config_v3.py                # Bond V3 parameters (managed futures DBMF/CTA)
-├── config_v2b.py               # Bond V2b experiment (3-month duration momentum gate)
-├── config_sector_v2.py         # Sector V2 parameters (32 ETFs, monthly)
-├── config_sector_v2b.py        # Sector V2b parameters (37 ETFs, weekly) ← production
-├── main.py                     # CLI entry point (--v2/--v3/--sector2b flags)
-├── optimize.py                 # Optuna optimisation (supports all strategy flags)
-├── best_params.json            # Bond V1 production parameters
-├── best_params_v2.json         # Bond V2 production parameters
-├── best_params_v3.json         # Bond V3 production parameters
-├── best_params_sector2.json    # Sector V2 production parameters
-├── best_params_sector2b.json   # Sector V2b production parameters ← primary
-├── daily_weights.py            # GitHub Actions: compute + email weights daily
-├── strategy/                   # Bond V1 strategy modules
-│   ├── signals.py
-│   ├── portfolio.py
-│   └── backtest.py
-├── strategy_v2/                # Bond V2 strategy modules
-│   ├── signals.py              # + USD signal (DTWEXBGS), ISM fallback
-│   ├── portfolio.py            # + equity satellite, VNQ, VTIP/TIP split
-│   └── backtest.py
-├── strategy_v3/                # Bond V3 strategy modules (+ managed futures)
-│   ├── signals.py
-│   ├── portfolio.py
-│   └── backtest.py
-├── strategy_v2b/               # Bond V2b experiment (not in production)
-│   ├── signals.py
-│   ├── portfolio.py
-│   └── backtest.py
-├── strategy_sector_v2/         # Sector V2 modules (32 ETFs, monthly)
-│   ├── portfolio.py
-│   └── backtest.py
-├── strategy_sector_v2b/        # Sector V2b modules (37 ETFs, weekly) ← production
-│   ├── portfolio.py
-│   └── backtest.py
+├── main.py                     # CLI entry point — strategy registry + all subcommands
+├── optimize.py                 # Optuna optimisation (all strategies)
+├── configs/
+│   ├── bond_v1.py              # Bond V1 parameters
+│   ├── bond_v2.py              # Bond V2 parameters
+│   ├── bond_v3.py              # Bond V3 parameters
+│   ├── sector_base.py          # Shared sector defaults + BASE_PARAM_SPACE
+│   ├── sector_v1.py            # Sector V1 parameters
+│   ├── sector_v2.py            # Sector V2 parameters (35 ETFs, monthly)
+│   ├── sector_v2b.py           # Sector V2b parameters (37 ETFs, weekly)
+│   ├── sector_v2c.py           # Sector V2c parameters (cross-asset + cluster caps)
+│   ├── sector_v2d.py           # Sector V2d parameters (liquid ETFs ≥$100M/day)
+│   └── sector_v2e.py           # Sector V2e parameters (V2d + 24m/36m supercycle) ← current best
+├── strategies/
+│   ├── backtest_core.py        # Shared utilities: vol_scale, DD overlay, trailing stops
+│   ├── bond_v1/                # signals.py, portfolio.py, backtest.py
+│   ├── bond_v2/
+│   ├── bond_v3/
+│   ├── sector_v1/
+│   ├── sector_v2/
+│   ├── sector_v2b/
+│   ├── sector_v2c/
+│   ├── sector_v2d/
+│   └── sector_v2e/             # ← current best
 ├── data/
-│   ├── pipeline.py             # Bond V1 data loading
-│   ├── pipeline_v2.py          # Bond V2/V2b data loading (etf_prices_v2.csv cache)
-│   ├── pipeline_v3.py          # Bond V3 data loading (etf_prices_v3.csv cache)
-│   ├── pipeline_sector_v2.py   # Sector V2 data loading (monthly resampling)
-│   ├── pipeline_sector_v2b.py  # Sector V2b data loading (weekly resampling)
 │   ├── fred_client.py          # FRED API + caching
-│   └── price_client.py         # Yahoo Finance ETF prices + caching
-└── analysis/
-    └── performance.py          # Metrics + charts
+│   ├── price_client.py         # Yahoo Finance ETF prices + caching
+│   ├── pipelines/              # One module per strategy: load_all() → prices
+│   └── cache/                  # git-ignored; populate with python main.py fetch
+├── analysis/
+│   └── performance.py          # Metrics + all chart functions
+├── broker/
+│   └── ibkr_client.py          # IBKR Gateway API client
+├── best_params_sector2e.json   # Sector V2e optimised parameters ← primary
+├── best_params_sector2d.json
+├── best_params_sector2b.json
+├── best_params.json            # Bond V1
+├── best_params_v2.json
+├── best_params_v3.json
+└── logs/                       # Per-strategy log files
 ```
-
-## Key Config Parameters
-
-| Parameter | V1 (optimised) | V2 (optimised) | V3 (optimised) | Description |
-|-----------|---------------|---------------|---------------|-------------|
-| `MAX_ALT_ALLOC` | 60% | 60% | 60% | Max commodity basket allocation |
-| `TRAILING_STOP_PCT` | 3% | 3% | 3% | Exit if price drops this far from rolling peak |
-| `TRAILING_STOP_WINDOW` | 21 days | 21 days | 21 days | Rolling peak lookback for trailing stop |
-| `VOL_TARGET` | 15% | 12% | 12% | Portfolio volatility target |
-| `MAX_LEVERAGE` | 1.75× | 1.75× | 1.50× | Max daily vol-scaling leverage |
-| `DD_THRESHOLD` | -3% | -2% | -14% | Drawdown level that triggers exposure scaling |
-| `DD_SCALE` | 30% | 45% | 10% | Exposure kept during drawdown event |
-| `MAX_CREDIT_ALLOC` | 80% | 80% | 75% | Max credit bucket allocation |
-| `MAX_EQUITY_ALLOC` | — | 5% | 15% | Equity satellite cap |
-| `MAX_REALESTATE_ALLOC` | — | 10% | 10% | VNQ allocation cap |
-| `W_COMMODITY_USD` | — | 0.40 | 0.05 | USD drag weight on commodity budget |
-| `VTIP_DURATION_SCALE` | — | 1.1 | 1.1 | Sensitivity of TIP/VTIP split to duration_z |

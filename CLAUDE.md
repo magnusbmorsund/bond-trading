@@ -34,13 +34,18 @@ During severe rate-hike environments (e.g., 2022), ALL duration/credit ETFs can 
 
 ```bash
 export FRED_API_KEY=your_key_here
-python main.py weights   # → get today's IBKR positions (display only)
-python main.py trade     # → execute rebalance via IBKR Gateway
+python main.py weights v1        # → bond V1 positions (display only)
+python main.py weights v2        # → bond V2 positions
+python main.py weights sector2b  # → sector V2b positions (weekly)
+python main.py trade v1          # → execute rebalance via IBKR Gateway
 ```
+
+Strategy is always a positional argument (not a flag). Default is `v1` if omitted.
+Available strategies: `v1`, `v2`, `v3`, `sector`, `sector2`, `sector2b`, `sector2c`, `sector2d`, `sector2e`.
 
 ## IBKR Gateway Integration
 
-`python main.py trade [--v2|--v3] [--dry-run]` connects to a running IBKR Gateway,
+`python main.py trade [STRATEGY] [--dry-run]` connects to a running IBKR Gateway,
 fetches live account equity and positions, and submits `MarketOrder`s to rebalance
 to the strategy's effective weights (trailing-stop adjusted).
 
@@ -74,10 +79,11 @@ values shown by `python main.py weights`. No native IBKR trailing-stop orders ar
 ## Optuna Optimization
 
 ```bash
-python main.py optimize --trials 300
+python main.py optimize v1 --trials 300      # bond V1
+python main.py optimize sector2b --trials 300
 ```
 
-Searches over ~25 parameters (lookbacks, allocation caps, signal weights, trailing stop parameters). 70/30 train/test split. Objective: `Sharpe × ann_return × 10 − drawdown_penalty − return_penalty − worst_month_penalty`. Heavy penalty (20×) for max DD > 10%. Saves `best_params.json` which `main.py weights` loads automatically.
+Searches over ~25 parameters (lookbacks, allocation caps, signal weights, trailing stop parameters). 70/30 train/test split. Objective: `Sharpe × ann_return × 10 − drawdown_penalty − return_penalty − worst_month_penalty`. Heavy penalty (20×) for max DD > 10%. Saves `best_params<suffix>.json` (e.g. `best_params.json` for V1, `best_params_sector2b.json` for V2b) which `main.py weights` loads automatically.
 
 ## Extending the Strategy
 
@@ -102,36 +108,74 @@ Searches over ~25 parameters (lookbacks, allocation caps, signal weights, traili
 
 ## Sector Rotation Strategies
 
-A separate strategy family (Sector V1, V2, V2b) runs pure momentum on a broad ETF universe with no FRED signals. It lives in its own modules to keep Optuna config patching isolated from the bond strategy.
+A separate strategy family runs pure momentum on a broad ETF universe with no FRED signals. It lives in its own modules to keep Optuna config patching isolated from the bond strategy.
 
-### Why `strategies/sector_v2b/` is a separate package
+**Current best strategy: `sector2e`** — V2d liquid universe + 24m/36m supercycle lookbacks. CAGR 39.7% full period, 45.3% from 2005, 54.3% OOS (2018–2026). Zero negative years 2005–2026.
 
-`configs/sector_v2b.py` is a standalone module — not `configs/bond_v1.py`. Optuna patches it via `setattr(config_sector_v2b, k, v)` at runtime, identical to the bond-strategy pattern. Keeping sector configs in a separate file means `import configs.bond_v1 as config` in bond modules is never shadowed and trial state never bleeds across strategies.
+### Strategy variants
 
-### Module Responsibilities (Sector V2b)
+| Key | Config | Description |
+|-----|--------|-------------|
+| `sector` | `configs/sector_v1.py` | XL-series, single-lookback momentum |
+| `sector2` | `configs/sector_v2.py` | 35 ETFs, multi-timescale, adaptive stops, monthly rebalance |
+| `sector2b` | `configs/sector_v2b.py` | Weekly rebalance, expanded 37-ETF universe — **production** |
+| `sector2c` | `configs/sector_v2c.py` | Cross-asset + correlation filter + cluster caps |
+| `sector2d` | `configs/sector_v2d.py` | Liquid ETFs only (≥$100M/day ADV filter) |
+| `sector2e` | `configs/sector_v2e.py` | V2d universe + 24m/36m supercycle momentum lookbacks |
+
+### V2e-specific design: `_weighted_blend` NaN-safe helper
+
+V2e adds 24m (504 days) and 36m (756 days) momentum lookbacks. During the warmup period these return NaN. The `_weighted_blend(pairs)` function in `strategies/sector_v2e/signals.py` computes the weighted average while ignoring NaN per cell — shorter lookbacks carry full weight until longer history is available. This replaces the simple division formula used in V2c/V2d `composite_score`. Do not simplify this back to a plain division or NaN will propagate and the strategy goes to cash for the first 3 years.
+
+### Nordnet live execution (glidende stop loss)
+
+Nordnet's "Glidende stop loss" is confirmed available for US-listed ETFs. It trails from the highest price since order placement.
+
+**Do not reset stops every Friday.** The backtest uses an 86-day rolling peak. Resetting weekly makes the effective window 1 week — far too tight, will trigger on normal volatility. Instead:
+- Let stops trail naturally from original placement
+- Only cancel and reset when: (a) position is fully closed at rebalancing, (b) adaptive stop% changes by >3pp, or (c) order nears the 30-day Nordnet validity limit
+- `python main.py weights sector2e` prints the exact stop% and stop price ready to enter in Nordnet
+
+### Why each sector strategy has its own config module
+
+Each `configs/sector_v*.py` is standalone. Optuna patches it via `setattr(cfg, k, v)` at runtime, identical to the bond-strategy pattern. Separate files prevent trial state from bleeding across strategies and ensure `import configs.bond_v1 as config` in bond modules is never shadowed.
+
+### Module Responsibilities (all sector variants follow this pattern)
 
 | Module | Owns | Does NOT own |
 |--------|------|-------------|
-| `configs/sector_v2b.py` | All sector V2b tunable parameters | Logic |
-| `data/pipelines/sector_v2b.py` | Price download + weekly resampling | Signal computation |
-| `strategies/sector_v2b/portfolio.py` | Multi-timescale momentum → weekly weights | Daily adjustments |
-| `strategies/sector_v2b/backtest.py` | Daily returns, adaptive trailing stops, vol target, DD overlay | Signal computation |
+| `configs/sector_v*.py` | All tunable parameters | Logic |
+| `data/pipelines/sector_v*.py` | Price download + period resampling | Signal computation |
+| `strategies/sector_v*/portfolio.py` | Multi-timescale momentum → weights | Daily adjustments |
+| `strategies/sector_v*/backtest.py` | Daily returns, adaptive trailing stops, vol target, DD overlay | Signal computation |
 
-### Weekly Resampling
+### Weekly Resampling (V2b and above)
 
 `data/pipelines/sector_v2b.py` calls `resample_to_period_end("W")` to convert daily prices to weekly. This uses `.resample("W").last()` which anchors on **Sunday** by calendar — but then `.values` is assigned back to the actual last trading day index (Friday, or Thursday on short weeks). The result is that rebalance dates are always real trading days, never calendar Sundays.
 
-### Running Sector V2b
+### Running Sector strategies
 
 ```bash
-python main.py weights --sector2b --best      # today's IBKR positions
-python main.py backtest --sector2b --best     # full 2010-2026 backtest
-python main.py optimize --sector2b --trials 300
+# Production (Sector V2b)
+python main.py weights sector2b       # today's IBKR positions (always loads best params)
+python main.py backtest sector2b --best  # full 2010-2026 backtest
+python main.py optimize sector2b --trials 300
+
+# Experimental variants
+python main.py backtest sector2c --best
+python main.py backtest sector2d --best
+python main.py backtest sector2e --best
+
+# Comparison charts
+python main.py compare-sector        # V2 / V2b / V2c → sector_comparison.png
+python main.py v2c-long              # V2c + V2d extended history → v2c_extended.png
+python main.py v2d-v2e               # V2d vs V2e → v2d_v2e.png
+python main.py v2c-v2d-v2e          # three-way V2c/V2d/V2e → v2c_v2d_v2e.png
 ```
 
-Optimised params live in `best_params_sector2b.json` and are loaded automatically by `--best`. Key params: `N_POSITIONS=4`, `MAX_WEIGHT=15.9%`, `STOP_TACTICAL=4%`, `STOP_SUPERCYCLE=14%`, `TRAILING_STOP_WINDOW=108d`, `DD_THRESHOLD=-14.6%`, `VOL_TARGET=17.0%`, `SPY_MA_WINDOW=154`.
+Optimised params load automatically from `best_params_sector2b.json` (and equivalent files for other variants). Key V2b params: `N_POSITIONS=4`, `MAX_WEIGHT=15.9%`, `STOP_TACTICAL=4%`, `STOP_SUPERCYCLE=14%`, `TRAILING_STOP_WINDOW=108d`, `DD_THRESHOLD=-14.6%`, `VOL_TARGET=17.0%`, `SPY_MA_WINDOW=154`.
 
-### Testing Sector V2b
+### Testing Sector strategies
 
 After any change to sector portfolio or backtest logic, run:
 
@@ -151,6 +195,23 @@ EOF
 ```
 
 Targets (Sector V2b, 2010-2026, optimised params): CAGR > 44%, Sharpe > 2.9, Max Drawdown better than -8%.
+
+For V2e use:
+```bash
+python - <<'EOF'
+import warnings; warnings.filterwarnings("ignore")
+from data.pipelines.sector_v2e import load_all
+from strategies.sector_v2e.backtest import run
+from analysis.performance import summary
+
+prices = load_all()
+res = run(prices)
+s = summary(res["daily_returns"], res["nav"], "Sector V2e")
+print(s)
+EOF
+```
+
+Targets (Sector V2e, 2002-2026, optimised params): CAGR > 38%, Sharpe > 3.0, Max Drawdown better than -10%.
 
 ## Testing Changes
 
