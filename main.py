@@ -20,6 +20,7 @@ Available strategies (default: v1):
   sector2b  Sector V2b        (weekly rebalance, expanded universe)
   sector2c  Sector V2c        (cross-asset + correlation filter + cluster caps)
   sector2d  Sector V2d        (V2c universe, liquid ETFs only ≥$100M/day)
+  sector2e  Sector V2e        (V2d + 24m/36m supercycle momentum lookbacks)
 
 IBKR Gateway env vars (for the trade command):
   IBKR_HOST          Gateway hostname     (default: 127.0.0.1)
@@ -41,7 +42,7 @@ warnings.filterwarnings("ignore")
 
 from analysis.performance import (
     print_summary_table, plot_results, plot_annual_stats,
-    plot_annual_allocations, plot_comparison,
+    plot_annual_allocations, plot_comparison, plot_v2d_v2e,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,7 @@ REGISTRY: dict[str, StrategySpec] = {
     "sector2b": StrategySpec("Sector V2b", "configs.sector_v2b", "data.pipelines.sector_v2b", "strategies.sector_v2b.backtest", "_sector2b"),
     "sector2c": StrategySpec("Sector V2c", "configs.sector_v2c", "data.pipelines.sector_v2c", "strategies.sector_v2c.backtest", "_sector2c"),
     "sector2d": StrategySpec("Sector V2d", "configs.sector_v2d", "data.pipelines.sector_v2d", "strategies.sector_v2d.backtest", "_sector2d"),
+    "sector2e": StrategySpec("Sector V2e", "configs.sector_v2e", "data.pipelines.sector_v2e", "strategies.sector_v2e.backtest", "_sector2e"),
 }
 
 STRATEGY_CHOICES = list(REGISTRY.keys())
@@ -349,6 +351,7 @@ def cmd_optimize(strategy: str, n_trials: int = 300, stop_freq: str = "daily"):
         "sector2b": dict(sector2b=True),
         "sector2c": dict(sector2c=True),
         "sector2d": dict(sector2d=True),
+        "sector2e": dict(sector2e=True),
     }
     run_optimization(n_trials=n_trials, stop_freq=stop_freq, **flags.get(strategy, {}))
 
@@ -356,6 +359,28 @@ def cmd_optimize(strategy: str, n_trials: int = 300, stop_freq: str = "daily"):
 # ---------------------------------------------------------------------------
 # One-off comparison commands
 # ---------------------------------------------------------------------------
+
+def cmd_v2d_v2e():
+    """V2d vs V2e supercycle comparison → v2d_v2e.png."""
+    import configs.sector_v2d as cfg2d
+    import configs.sector_v2e as cfg2e
+    from data.pipelines.sector_v2d import load_all as load2d
+    from data.pipelines.sector_v2e import load_all as load2e
+    from strategies.sector_v2d.backtest import run as run2d
+    from strategies.sector_v2e.backtest import run as run2e
+
+    _load_best(cfg2d, "sector2d")
+    _load_best(cfg2e, "sector2e")
+
+    logger.info("Loading V2d data...")
+    r2d = run2d(load2d())
+    logger.info("Loading V2e data...")
+    r2e = run2e(load2e())
+
+    save_path = os.path.join(_BASE, "v2d_v2e.png")
+    plot_v2d_v2e(r2d, r2e, save_path=save_path)
+    print(f"Saved → {save_path}")
+
 
 def cmd_v2c_long():
     """V2c + V2d extended backtests (2002–present) → v2c_extended.png."""
@@ -476,6 +501,7 @@ def main():
     sub.add_parser("compare",        help="Bond V1/V2/V3 comparison → backtest_comparison.png")
     sub.add_parser("compare-sector", help="Sector V2/V2b/V2c comparison → sector_comparison.png")
     sub.add_parser("v2c-long",       help="V2c+V2d extended history (2002–present) → v2c_extended.png")
+    sub.add_parser("v2d-v2e",        help="V2d vs V2e supercycle comparison → v2d_v2e.png")
 
     args = parser.parse_args()
     if args.cmd is None:
@@ -495,6 +521,7 @@ def main():
     elif args.cmd == "compare":        cmd_compare()
     elif args.cmd == "compare-sector": cmd_compare_sector()
     elif args.cmd == "v2c-long":       cmd_v2c_long()
+    elif args.cmd == "v2d-v2e":        cmd_v2d_v2e()
     else:
         parser.print_help()
 
