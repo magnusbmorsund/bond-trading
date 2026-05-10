@@ -42,7 +42,7 @@ warnings.filterwarnings("ignore")
 
 from analysis.performance import (
     print_summary_table, plot_results, plot_annual_stats,
-    plot_annual_allocations, plot_comparison, plot_v2d_v2e,
+    plot_annual_allocations, plot_comparison, plot_v2d_v2e, plot_v2c_v2d_v2e,
 )
 
 logger = logging.getLogger(__name__)
@@ -360,6 +360,34 @@ def cmd_optimize(strategy: str, n_trials: int = 300, stop_freq: str = "daily"):
 # One-off comparison commands
 # ---------------------------------------------------------------------------
 
+def cmd_v2c_v2d_v2e():
+    """V2c vs V2d vs V2e three-way comparison → v2c_v2d_v2e.png."""
+    import configs.sector_v2c as cfg2c
+    import configs.sector_v2d as cfg2d
+    import configs.sector_v2e as cfg2e
+    from data.pipelines.sector_v2c import load_all as load2c
+    from data.pipelines.sector_v2d import load_all as load2d
+    from data.pipelines.sector_v2e import load_all as load2e
+    from strategies.sector_v2c.backtest import run as run2c
+    from strategies.sector_v2d.backtest import run as run2d
+    from strategies.sector_v2e.backtest import run as run2e
+
+    _load_best(cfg2c, "sector2c")
+    _load_best(cfg2d, "sector2d")
+    _load_best(cfg2e, "sector2e")
+
+    logger.info("Loading V2c data...")
+    r2c = run2c(load2c())
+    logger.info("Loading V2d data...")
+    r2d = run2d(load2d())
+    logger.info("Loading V2e data...")
+    r2e = run2e(load2e())
+
+    save_path = os.path.join(_BASE, "v2c_v2d_v2e.png")
+    plot_v2c_v2d_v2e(r2c, r2d, r2e, save_path=save_path)
+    print(f"Saved → {save_path}")
+
+
 def cmd_v2d_v2e():
     """V2d vs V2e supercycle comparison → v2d_v2e.png."""
     import configs.sector_v2d as cfg2d
@@ -502,6 +530,7 @@ def main():
     sub.add_parser("compare-sector", help="Sector V2/V2b/V2c comparison → sector_comparison.png")
     sub.add_parser("v2c-long",       help="V2c+V2d extended history (2002–present) → v2c_extended.png")
     sub.add_parser("v2d-v2e",        help="V2d vs V2e supercycle comparison → v2d_v2e.png")
+    sub.add_parser("v2c-v2d-v2e",   help="V2c vs V2d vs V2e three-way comparison → v2c_v2d_v2e.png")
 
     args = parser.parse_args()
     if args.cmd is None:
@@ -522,6 +551,7 @@ def main():
     elif args.cmd == "compare-sector": cmd_compare_sector()
     elif args.cmd == "v2c-long":       cmd_v2c_long()
     elif args.cmd == "v2d-v2e":        cmd_v2d_v2e()
+    elif args.cmd == "v2c-v2d-v2e":   cmd_v2c_v2d_v2e()
     else:
         parser.print_help()
 

@@ -729,6 +729,164 @@ def plot_v2c_extended(results_v2c: dict, results_v2d: dict = None, save_path: st
     plt.close()
 
 
+def plot_v2c_v2d_v2e(results_v2c: dict, results_v2d: dict, results_v2e: dict, save_path: str = None):
+    """
+    V2c vs V2d vs V2e three-way comparison, 2002–present.
+    4 panels: log NAV, drawdown, rolling Sharpe, stats table.
+    """
+    import matplotlib.ticker as mticker
+
+    START = "2002-08-01"
+
+    nav_v2c_raw = results_v2c["nav"] * 100_000
+    nav_v2d_raw = results_v2d["nav"] * 100_000
+    nav_v2e_raw = results_v2e["nav"] * 100_000
+    nav_bm_raw  = results_v2c["nav_bm"] * 100_000
+
+    t0 = max(
+        nav_v2c_raw.loc[nav_v2c_raw.index >= START].index[0],
+        nav_v2d_raw.loc[nav_v2d_raw.index >= START].index[0],
+        nav_v2e_raw.loc[nav_v2e_raw.index >= START].index[0],
+        nav_bm_raw.loc[nav_bm_raw.index   >= START].index[0],
+    )
+
+    nav_v2c = nav_v2c_raw.loc[t0:] / nav_v2c_raw.loc[t0] * 100_000
+    nav_v2d = nav_v2d_raw.loc[t0:] / nav_v2d_raw.loc[t0] * 100_000
+    nav_v2e = nav_v2e_raw.loc[t0:] / nav_v2e_raw.loc[t0] * 100_000
+    nav_bm  = nav_bm_raw.loc[t0:]  / nav_bm_raw.loc[t0]  * 100_000
+
+    ret_v2c = results_v2c["daily_returns"].loc[t0:]
+    ret_v2d = results_v2d["daily_returns"].loc[t0:]
+    ret_v2e = results_v2e["daily_returns"].loc[t0:]
+    ret_bm  = results_v2c["daily_returns_bm"].loc[t0:]
+
+    end_yr  = nav_v2c.index[-1].year
+    C2C, C2D, C2E, CBM = "#4CAF50", "#2196F3", "#FF9800", "#9E9E9E"
+
+    fig, axes = plt.subplots(4, 1, figsize=(14, 22),
+                             gridspec_kw={"height_ratios": [3, 2, 2, 3]})
+    fig.suptitle(
+        f"Sector V2c vs V2d vs V2e — Full History  {t0.year}–{end_yr}\n"
+        "V2c: 46 ETFs  |  V2d: liquid ≥$100M/day  |  V2e: V2d + 24m/36m supercycle  |  Best Params",
+        fontsize=14, fontweight="bold",
+    )
+
+    # ── Panel 1: Log NAV ──────────────────────────────────────────────────────
+    ax = axes[0]
+    ax.semilogy(nav_v2c.index, nav_v2c, label="V2c (46 ETFs, incl. illiquid)", color=C2C, linewidth=1.8)
+    ax.semilogy(nav_v2d.index, nav_v2d, label="V2d (38 ETFs, ≥$100M/day)", color=C2D, linewidth=1.8, linestyle="-.")
+    ax.semilogy(nav_v2e.index, nav_v2e, label="V2e (V2d + 24m/36m supercycle)", color=C2E, linewidth=1.8, linestyle="--")
+    ax.semilogy(nav_bm.index,  nav_bm,  label="EW Sector Core BM", color=CBM,
+                linewidth=1.0, linestyle=":", alpha=0.7)
+
+    for dt_str, lbl in [("2004-11-18", "GLD\n+VNQ"), ("2007-04-04", "HYG\n+Miners"),
+                         ("2010-04-19", "~30\nETFs"), ("2019-12-03", "Full\nuniverse")]:
+        dt = pd.Timestamp(dt_str)
+        if dt > nav_v2c.index[0]:
+            ax.axvline(dt, color="#BDBDBD", linewidth=0.8, linestyle=":", alpha=0.6)
+            y_pos = nav_v2c.loc[nav_v2c.index >= dt].iloc[0]
+            ax.text(dt, y_pos * 1.6, lbl, fontsize=7, color="#757575", ha="center", va="bottom")
+
+    end_2c = nav_v2c.iloc[-1]
+    end_2d = nav_v2d.iloc[-1]
+    end_2e = nav_v2e.iloc[-1]
+    end_bm = nav_bm.iloc[-1]
+    ax.annotate(f"  V2c  ${end_2c:,.0f}", xy=(nav_v2c.index[-1], end_2c * 1.50), color=C2C, fontsize=9, fontweight="bold", va="center")
+    ax.annotate(f"  V2d  ${end_2d:,.0f}", xy=(nav_v2d.index[-1], end_2d * 0.75), color=C2D, fontsize=9, fontweight="bold", va="center")
+    ax.annotate(f"  V2e  ${end_2e:,.0f}", xy=(nav_v2e.index[-1], end_2e * 1.15), color=C2E, fontsize=9, fontweight="bold", va="center")
+    ax.annotate(f"  BM   ${end_bm:,.0f}", xy=(nav_bm.index[-1],  end_bm * 0.55), color=CBM, fontsize=9, fontweight="bold", va="center")
+
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+    ax.set_ylabel("Portfolio Value  (log scale, start = $100,000)")
+    ax.set_title("Cumulative NAV")
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.25, which="both")
+
+    # ── Panel 2: Drawdown ──────────────────────────────────────────────────────
+    ax = axes[1]
+    dd_v2c = drawdown_series(nav_v2c)
+    dd_v2d = drawdown_series(nav_v2d)
+    dd_v2e = drawdown_series(nav_v2e)
+    dd_bm  = drawdown_series(nav_bm)
+    ax.fill_between(nav_v2c.index, dd_v2c, 0, alpha=0.40, label=f"V2c  MaxDD {dd_v2c.min():.1%}", color=C2C)
+    ax.fill_between(nav_v2d.index, dd_v2d, 0, alpha=0.40, label=f"V2d  MaxDD {dd_v2d.min():.1%}", color=C2D)
+    ax.fill_between(nav_v2e.index, dd_v2e, 0, alpha=0.35, label=f"V2e  MaxDD {dd_v2e.min():.1%}", color=C2E)
+    ax.fill_between(nav_bm.index,  dd_bm,  0, alpha=0.15, label=f"BM   MaxDD {dd_bm.min():.1%}",  color=CBM)
+    ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1, decimals=0))
+    ax.set_ylabel("Drawdown")
+    ax.set_title("Drawdown from Peak")
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.25)
+
+    # ── Panel 3: Rolling 12m Sharpe ────────────────────────────────────────────
+    ax = axes[2]
+
+    def _rs(r, w=252):
+        return r.rolling(w).mean() / r.rolling(w).std() * np.sqrt(w)
+
+    ax.plot(nav_v2c.index, _rs(ret_v2c), label="V2c", color=C2C, linewidth=1.5)
+    ax.plot(nav_v2d.index, _rs(ret_v2d), label="V2d", color=C2D, linewidth=1.5, linestyle="-.")
+    ax.plot(nav_v2e.index, _rs(ret_v2e), label="V2e", color=C2E, linewidth=1.5, linestyle="--")
+    ax.plot(nav_bm.index,  _rs(ret_bm),  label="BM",  color=CBM, linewidth=0.9, linestyle=":", alpha=0.7)
+    ax.axhline(0, color="black", linewidth=0.7, linestyle=":")
+    ax.set_ylabel("Sharpe (12m rolling)")
+    ax.set_title("Rolling 12-Month Sharpe Ratio")
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.25)
+
+    # ── Panel 4: Stats table ───────────────────────────────────────────────────
+    ax = axes[3]
+    ax.axis("off")
+
+    s2c  = summary(ret_v2c, nav_v2c / 100_000, "V2c")
+    s2d  = summary(ret_v2d, nav_v2d / 100_000, "V2d")
+    s2e  = summary(ret_v2e, nav_v2e / 100_000, "V2e")
+    s_bm = summary(ret_bm,  nav_bm  / 100_000, "BM")
+
+    metrics    = ["Ann. Return", "Sharpe Ratio", "Max Drawdown",
+                  "Calmar Ratio", "Worst Month", "Total Return"]
+    col_labels = ["Strategy", "Ann. Return", "Sharpe Ratio",
+                  "Max Drawdown", "Calmar Ratio", "Worst Month", "Total Return"]
+
+    rows = [
+        ["V2c (46 ETFs, incl. illiquid)"] + [s2c[m] for m in metrics],
+        ["V2d (38 ETFs, ≥$100M/day)"]     + [s2d[m] for m in metrics],
+        ["V2e (V2d + 24m/36m supercycle)"] + [s2e[m] for m in metrics],
+        ["EW Sector Core BM"]              + [s_bm[m] for m in metrics],
+    ]
+    row_colors = ["#E8F5E9", "#E3F2FD", "#FFF3E0", "#F5F5F5"]
+
+    tbl = ax.table(cellText=rows, colLabels=col_labels, cellLoc="center", loc="center")
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(10)
+    tbl.scale(1, 2.0)
+
+    for row_i, color in enumerate(row_colors):
+        for col in range(len(col_labels)):
+            tbl[row_i + 1, col].set_facecolor(color)
+    for col in range(len(col_labels)):
+        tbl[0, col].set_facecolor("#343a40")
+        tbl[0, col].set_text_props(color="white", fontweight="bold")
+
+    ax.set_title(
+        f"Summary Statistics  ({t0.year}–{end_yr})  ·  Best optimised params for each strategy",
+        fontsize=10, fontweight="bold", pad=12,
+    )
+
+    for ax in axes[:3]:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+        ax.xaxis.set_major_locator(mdates.YearLocator(2))
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
+        print(f"  Saved chart → {save_path}")
+    else:
+        plt.show()
+    plt.close()
+
+
 def plot_v2d_v2e(results_v2d: dict, results_v2e: dict, save_path: str = None):
     """
     V2d vs V2e side-by-side comparison, 2002–present.
