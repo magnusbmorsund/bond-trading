@@ -36,7 +36,7 @@ During severe rate-hike environments (e.g., 2022), ALL duration/credit ETFs can 
 export FRED_API_KEY=your_key_here
 python main.py weights v1        # → bond V1 positions (display only)
 python main.py weights v2        # → bond V2 positions
-python main.py weights sector2b  # → sector V2b positions (weekly)
+python main.py weights sector2e  # → sector V2e positions (current best, weekly)
 python main.py trade v1          # → execute rebalance via IBKR Gateway
 ```
 
@@ -118,10 +118,10 @@ A separate strategy family runs pure momentum on a broad ETF universe with no FR
 |-----|--------|-------------|
 | `sector` | `configs/sector_v1.py` | XL-series, single-lookback momentum |
 | `sector2` | `configs/sector_v2.py` | 35 ETFs, multi-timescale, adaptive stops, monthly rebalance |
-| `sector2b` | `configs/sector_v2b.py` | Weekly rebalance, expanded 37-ETF universe — **production** |
+| `sector2b` | `configs/sector_v2b.py` | Weekly rebalance, expanded 37-ETF universe |
 | `sector2c` | `configs/sector_v2c.py` | Cross-asset + correlation filter + cluster caps |
 | `sector2d` | `configs/sector_v2d.py` | Liquid ETFs only (≥$100M/day ADV filter) |
-| `sector2e` | `configs/sector_v2e.py` | V2d universe + 24m/36m supercycle momentum lookbacks |
+| `sector2e` | `configs/sector_v2e.py` | V2d universe + 24m/36m supercycle momentum lookbacks — **current best / production** |
 
 ### V2e-specific design: `_weighted_blend` NaN-safe helper
 
@@ -156,15 +156,16 @@ Each `configs/sector_v*.py` is standalone. Optuna patches it via `setattr(cfg, k
 ### Running Sector strategies
 
 ```bash
-# Production (Sector V2b)
-python main.py weights sector2b       # today's IBKR positions (always loads best params)
-python main.py backtest sector2b --best  # full 2010-2026 backtest
-python main.py optimize sector2b --trials 300
+# Production (Sector V2e — current best)
+python main.py weights sector2e       # today's positions + Nordnet stop prices
+python main.py backtest sector2e --best  # full backtest + charts
+python main.py optimize sector2e --trials 300
 
-# Experimental variants
+# Other variants
+python main.py weights sector2b
+python main.py backtest sector2b --best
 python main.py backtest sector2c --best
 python main.py backtest sector2d --best
-python main.py backtest sector2e --best
 
 # Comparison charts
 python main.py compare-sector        # V2 / V2b / V2c → sector_comparison.png
@@ -173,7 +174,7 @@ python main.py v2d-v2e               # V2d vs V2e → v2d_v2e.png
 python main.py v2c-v2d-v2e          # three-way V2c/V2d/V2e → v2c_v2d_v2e.png
 ```
 
-Optimised params load automatically from `best_params_sector2b.json` (and equivalent files for other variants). Key V2b params: `N_POSITIONS=4`, `MAX_WEIGHT=15.9%`, `STOP_TACTICAL=4%`, `STOP_SUPERCYCLE=14%`, `TRAILING_STOP_WINDOW=108d`, `DD_THRESHOLD=-14.6%`, `VOL_TARGET=17.0%`, `SPY_MA_WINDOW=154`.
+Optimised params load automatically from `best_params_sector2e.json` (and equivalent files for other variants). Key V2b params (for reference): `N_POSITIONS=4`, `MAX_WEIGHT=15.9%`, `STOP_TACTICAL=4%`, `STOP_SUPERCYCLE=14%`, `TRAILING_STOP_WINDOW=108d`, `DD_THRESHOLD=-14.6%`, `VOL_TARGET=17.0%`, `SPY_MA_WINDOW=154`.
 
 ### Testing Sector strategies
 

@@ -253,6 +253,7 @@ python main.py weights v3
 # Comparison charts
 python main.py compare                    # Bond V1/V2/V3 → backtest_comparison.png
 python main.py compare-sector             # Sector V2/V2b/V2c → sector_comparison.png
+python main.py v2c-long                   # V2c + V2d extended history → v2c_extended.png
 python main.py v2d-v2e                    # V2d vs V2e → v2d_v2e.png
 python main.py v2c-v2d-v2e               # three-way comparison → v2c_v2d_v2e.png
 ```
