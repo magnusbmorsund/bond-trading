@@ -90,6 +90,14 @@ def effective_weights(
         if len(prices_etf) < 2:
             continue
 
+        # Issue #3: warn when price history is shorter than the stop window
+        if len(prices_etf) < config.TRAILING_STOP_WINDOW:
+            logger.warning(
+                "%s: only %d days of price history (need %d for full stop window) — "
+                "peak computed on truncated window; stop threshold may be unreliable",
+                etf, len(prices_etf), config.TRAILING_STOP_WINDOW,
+            )
+
         lb  = min(252, len(prices_etf) - 1)
         m12 = float(prices_etf.iloc[-1] / prices_etf.iloc[-lb - 1] - 1) if lb > 0 else 0.0
 

@@ -31,6 +31,7 @@ IBKR Gateway env vars (for the trade command):
 import sys
 import os
 import json
+import time
 import logging
 import argparse
 import importlib
@@ -140,6 +141,14 @@ def _load_best(cfg, strategy: str, stop_freq: str = "daily"):
     for k, v in params.items():
         setattr(cfg, k, v)
     logger.info("Loaded %d optimised params from %s", len(params), os.path.basename(path))
+
+    # Issue #7: warn if params file is stale (>60 days) — regime may have changed
+    age_days = (time.time() - os.path.getmtime(path)) / 86400
+    if age_days > 60:
+        logger.warning(
+            "%s is %.0f days old — consider re-optimising: python main.py optimize %s",
+            os.path.basename(path), age_days, strategy,
+        )
 
 
 def _validate_env(cfg):
@@ -294,6 +303,14 @@ def cmd_weights(strategy: str, stop_freq: str = "daily"):
 def cmd_trade(strategy: str, dry_run: bool = False, stop_freq: str = "daily"):
     from broker.ibkr_client import IBKRClient
 
+    # Issue #5: prevent concurrent invocations from racing on the same account state
+    lock_path = os.path.join(_BASE, ".trade_lock")
+    if os.path.exists(lock_path):
+        raise RuntimeError(
+            f"Trade already in progress (.trade_lock exists). "
+            "Delete the lock file if no trade is actually running."
+        )
+
     s = _resolve(strategy, stop_freq)
     cfg = s.config
     if s.spec.needs_fred:
@@ -302,6 +319,17 @@ def cmd_trade(strategy: str, dry_run: bool = False, stop_freq: str = "daily"):
 
     logger.info("Loading data...")
     macro, prices = s.load()
+
+    # Issue #4: ensure prices are fresh before computing trailing-stop peaks
+    last_cache_date = prices.index[-1].normalize()
+    today = pd.Timestamp.today().normalize()
+    days_stale = len(pd.bdate_range(last_cache_date + pd.Timedelta(days=1), today))
+    if days_stale > 1:
+        logger.info(
+            "Cached prices are %d trading day(s) stale — re-fetching before computing stops...",
+            days_stale,
+        )
+        macro, prices = s.load(force=True)
 
     logger.info("Computing effective weights...")
     results  = s.run(macro, prices)
@@ -316,29 +344,45 @@ def cmd_trade(strategy: str, dry_run: bool = False, stop_freq: str = "daily"):
         if w > 0.001:
             logger.info("  %s  %.2f%%", etf, w * 100)
 
-    client = IBKRClient()
-    client.connect()
     try:
-        net_liq        = client.get_net_liq()
-        current_shares = client.get_positions()
-        all_tickers    = list(set(eff_w.index.tolist()) | set(current_shares.keys()))
-        live_prices    = client.get_prices(all_tickers)
-        orders         = client.build_rebalance_orders(eff_w, net_liq, current_shares, live_prices)
+        open(lock_path, "w").close()
+        client = IBKRClient()
+        client.connect()
+        try:
+            net_liq        = client.get_net_liq()
+            current_shares = client.get_positions()
+            all_tickers    = list(set(eff_w.index.tolist()) | set(current_shares.keys()))
+            live_prices    = client.get_prices(all_tickers)
+            orders         = client.build_rebalance_orders(eff_w, net_liq, current_shares, live_prices)
 
-        if not orders:
-            print("\nNo orders needed — portfolio is already at target weights.")
-            return
+            if not orders:
+                print("\nNo orders needed — portfolio is already at target weights.")
+                return
 
-        client.print_preview(orders, net_liq)
-        if dry_run:
-            print("\n[dry-run] No orders submitted.")
-        else:
-            if input("\nSubmit orders? [y/N]: ").strip().lower() == "y":
-                client.submit_orders(orders)
+            client.print_preview(orders, net_liq)
+            if dry_run:
+                print("\n[dry-run] No orders submitted.")
             else:
-                print("Aborted — no orders submitted.")
+                if input("\nSubmit orders? [y/N]: ").strip().lower() == "y":
+                    # Issue #1: refetch net_liq to catch account changes during user approval delay
+                    net_liq_now = client.get_net_liq()
+                    change_pct = abs(net_liq_now - net_liq) / net_liq
+                    if change_pct > 0.02:
+                        logger.error(
+                            "Account balance changed %.1f%% since preview "
+                            "(was $%,.0f, now $%,.0f) — aborting. Re-run to use fresh values.",
+                            change_pct * 100, net_liq, net_liq_now,
+                        )
+                        print("\nAborted — account balance changed >2% during approval. Please re-run.")
+                    else:
+                        client.submit_orders(orders)
+                else:
+                    print("Aborted — no orders submitted.")
+        finally:
+            client.disconnect()
     finally:
-        client.disconnect()
+        if os.path.exists(lock_path):
+            os.remove(lock_path)
 
 
 def cmd_optimize(strategy: str, n_trials: int = 300, stop_freq: str = "daily"):
