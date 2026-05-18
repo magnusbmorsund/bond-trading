@@ -12,16 +12,16 @@ Pure multi-timescale momentum across 37 liquid ETFs (all ≥$100M avg daily doll
 
 ### Performance (optimised params, no cash yield — SHY earns 0%)
 
-| Metric          | Sector V2b      | Sector V2c      | Sector V2d      | **Sector V2e**  |
-|----------------|-----------------|-----------------|-----------------|-----------------|
-| **Period**     | 2010–2026       | 2005–2026       | 2005–2026       | **2005–2026**   |
-| **CAGR**       | 43.9%           | 40.9%           | 39.0%           | **43.6%**       |
-| Sharpe         | 2.97            | **3.76**        | **3.82**        | 3.40            |
-| Max Drawdown   | -6.2%           | -6.9%           | **-4.6%**       | -7.3%           |
-| Worst Month    | -5.2%           | -2.7%           | **-2.1%**       | -4.0%           |
-| ETF universe   | 37              | 46              | 38              | **37**          |
-| Rebalance      | Weekly          | Weekly          | Weekly          | **Weekly**      |
-| Negative years | 0/16            | —               | 0/21            | **0/21**        |
+| Metric          | Sector V1  | Sector V2  | Sector V2b | Sector V2c | Sector V2d | **Sector V2e** |
+|----------------|------------|------------|------------|------------|------------|----------------|
+| **Period**     | 2007–2026  | 2010–2026  | 2010–2026  | 2005–2026  | 2005–2026  | **2005–2026**  |
+| **CAGR**       | 16.0%      | 42.5%      | 43.9%      | 40.9%      | 39.0%      | **43.6%**      |
+| Sharpe         | 1.54       | 2.86       | 2.97       | **3.76**   | **3.82**   | 3.40           |
+| Max Drawdown   | -10.4%     | -8.3%      | -6.2%      | -6.9%      | **-4.6%**  | -7.3%          |
+| Worst Month    | -4.7%      | -6.4%      | -5.2%      | -2.7%      | **-2.1%**  | -4.0%          |
+| ETF universe   | 18         | 35         | 37         | 46         | 38         | **37**         |
+| Rebalance      | Monthly    | Monthly    | Weekly     | Weekly     | Weekly     | **Weekly**     |
+| Negative years | —          | —          | 0/16       | —          | 0/21       | **0/21**       |
 
 All figures assume SHY earns 0% — reflecting Nordnet behaviour where stopped-out cash sits uninvested. Period starts differ because many ETFs in the extended universe launched post-2005.
 
