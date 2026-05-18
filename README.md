@@ -6,26 +6,24 @@ Two independent strategy families: a **macro-driven bond + commodities rotation*
 
 ## Sector Rotation Strategy — V2e (current best)
 
-Pure multi-timescale momentum across 37 liquid ETFs (all ≥$100M avg daily dollar volume). No FRED signals — price alone drives all decisions. Weekly rebalancing with daily adaptive trailing stops placed natively at the broker (Nordnet glidende stop loss).
+Pure multi-timescale momentum across 37 liquid ETFs (all ≥$100M avg daily dollar volume). No FRED signals — price alone drives all decisions. Weekly rebalancing with adaptive trailing stops managed manually in Nordnet (glidende stop loss). Cash from stopped-out positions earns 0% — both in live trading and in the backtest.
 
 **Key innovation vs earlier variants:** V2e adds 24m and 36m momentum components to the slow-momentum blend, giving the ranking signal memory of multi-year economic supercycles (commodity cycles, tech booms, rate cycles). A NaN-safe blending helper handles the warmup period gracefully so shorter lookbacks carry full weight until longer history is available.
 
-### Performance (2005–2026, optimised params)
+### Performance (optimised params, no cash yield — SHY earns 0%)
 
-| Metric               | Sector V2b | Sector V2c | Sector V2d | **Sector V2e** |
-|---------------------|-----------|-----------|-----------|---------------|
-| **CAGR (2005–26)**  | —         | —         | —         | **45.3%**     |
-| **CAGR (full)**     | 45.0%     | —         | 35.9%     | **39.7%**     |
-| Sharpe              | 3.03      | —         | **3.71**  | 3.30          |
-| Max Drawdown        | -7.0%     | —         | **-4.7%** | -7.3%         |
-| Worst Month         | —         | —         | **-1.4%** | -2.4%         |
-| OOS CAGR (2018–26)  | —         | —         | 35.9%     | **54.3%**     |
-| OOS Sharpe (2018–26)| —         | —         | 3.71      | **3.61**      |
-| ETF universe        | 37        | 46        | 38        | **37**        |
-| Rebalance           | Weekly    | Weekly    | Weekly    | **Weekly**    |
-| Negative years      | 0/16      | —         | 0/24      | **0/21**      |
+| Metric          | Sector V2b      | Sector V2c      | Sector V2d      | **Sector V2e**  |
+|----------------|-----------------|-----------------|-----------------|-----------------|
+| **Period**     | 2010–2026       | 2005–2026       | 2005–2026       | **2005–2026**   |
+| **CAGR**       | 43.9%           | 40.9%           | 39.0%           | **43.6%**       |
+| Sharpe         | 2.97            | **3.76**        | **3.82**        | 3.40            |
+| Max Drawdown   | -6.2%           | -6.9%           | **-4.6%**       | -7.3%           |
+| Worst Month    | -5.2%           | -2.7%           | **-2.1%**       | -4.0%           |
+| ETF universe   | 37              | 46              | 38              | **37**          |
+| Rebalance      | Weekly          | Weekly          | Weekly          | **Weekly**      |
+| Negative years | 0/16            | —               | 0/21            | **0/21**        |
 
-V2e OOS outperforms train (54.3% vs 32.2% CAGR) — consistent with V2d pattern, suggests no overfitting.
+All figures assume SHY earns 0% — reflecting Nordnet behaviour where stopped-out cash sits uninvested. Period starts differ because many ETFs in the extended universe launched post-2005.
 
 <details>
 <summary>V2e year-by-year returns (2005–2026, no negative years)</summary>

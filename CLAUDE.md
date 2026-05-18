@@ -12,6 +12,9 @@ All parameters flow through `configs/bond_v1.py` (and the equivalent file for ea
 **Why the commodity budget is not normalized after trailing stops**
 When a commodity ETF is stopped out, its weight moves to SHY rather than being redistributed to other commodities. This avoids concentrating in the one commodity that happens to be above its stop — if the whole basket is breaking down, we want cash, not the last-survivor.
 
+**Why all sector strategies earn 0% on cash (SHY)**
+All sector strategies are executed via Nordnet with weekly/monthly rebalancing and trailing stop loss orders. When a stop triggers, proceeds sit as uninvested cash — earning nothing. All sector backtest files zero out SHY's daily return before computing `raw_daily`: `daily_ret_no_cash[config.CASH_ETF] = 0.0`. Do not remove this — crediting SHY's ~4–5% annualized return would overstate live performance. This applies to sector_v1 through sector_v2e.
+
 **Why `DD_SCALE=0.0` (full exit)**
 The drawdown overlay exits fully (not partially) when in distress. Partial scaling (e.g., 0.3×) was tested but empirically worse — it keeps you exposed during continued drawdowns. Binary exit + full re-entry on the first green day captures upswings cleanly.
 
@@ -110,7 +113,7 @@ Searches over ~25 parameters (lookbacks, allocation caps, signal weights, traili
 
 A separate strategy family runs pure momentum on a broad ETF universe with no FRED signals. It lives in its own modules to keep Optuna config patching isolated from the bond strategy.
 
-**Current best strategy: `sector2e`** — V2d liquid universe + 24m/36m supercycle lookbacks. CAGR 39.7% full period, 45.3% from 2005, 54.3% OOS (2018–2026). Zero negative years 2005–2026.
+**Current best strategy: `sector2e`** — V2d liquid universe + 24m/36m supercycle lookbacks. CAGR 43.6%, Sharpe 3.40, Max DD -7.3% (2005–2026, best params, no cash yield). Zero negative years 2005–2026. Full period (2000–2026): 38.2% CAGR — diluted by sparse ETF universe pre-2005.
 
 ### Strategy variants
 
@@ -195,7 +198,7 @@ print(s)
 EOF
 ```
 
-Targets (Sector V2b, 2010-2026, optimised params): CAGR > 44%, Sharpe > 2.9, Max Drawdown better than -8%.
+Targets (Sector V2b, 2010-2026, optimised params, **no cash yield — SHY earns 0%**): CAGR > 42%, Sharpe > 2.8, Max Drawdown better than -8%.
 
 For V2e use:
 ```bash
@@ -212,7 +215,7 @@ print(s)
 EOF
 ```
 
-Targets (Sector V2e, 2002-2026, optimised params): CAGR > 38%, Sharpe > 3.0, Max Drawdown better than -10%.
+Targets (Sector V2e, 2005-2026, optimised params, **no cash yield — SHY earns 0%**): CAGR > 42%, Sharpe > 3.2, Max Drawdown better than -10%.
 
 ## Testing Changes
 

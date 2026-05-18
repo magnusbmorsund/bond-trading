@@ -83,7 +83,11 @@ def run(prices: pd.DataFrame) -> dict:
         etf_prices,
     )
 
-    raw_daily      = apply_transaction_costs((daily_w * daily_ret).sum(axis=1), daily_w)
+    daily_ret_no_cash = daily_ret.copy()
+    if config.CASH_ETF in daily_ret_no_cash.columns:
+        daily_ret_no_cash[config.CASH_ETF] = 0.0
+
+    raw_daily      = apply_transaction_costs((daily_w * daily_ret_no_cash).sum(axis=1), daily_w)
     raw_daily.name = "strategy_raw"
 
     cash_rate = pd.Series(0.0, index=daily_ret.index)   # SHY yield not explicitly modelled
