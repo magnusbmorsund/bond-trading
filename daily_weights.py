@@ -1,7 +1,10 @@
 """
 Daily weights report — run by GitHub Actions.
-Computes effective weights for V1/V2/V3, compares with previous day,
-and writes positions + buy/sell orders to positions/YYYY-MM-DD.csv.
+Computes effective weights for the configured strategies, compares with previous
+day, and writes positions + buy/sell orders to positions/YYYY-MM-DD.xlsx.
+
+Strategy list is controlled by the DAILY_STRATEGIES env var (comma-separated).
+Default: "v1,v2,v3". Example: DAILY_STRATEGIES=v1,v2,sector2e
 """
 import os
 import sys
@@ -23,38 +26,61 @@ logger = logging.getLogger(__name__)
 _MIN_TRADE_PCT = 0.5
 
 
+_BOND_VERSIONS   = {"v1", "v2", "v3"}
+_SECTOR_VERSIONS = {"sector", "sector2", "sector2b", "sector2c", "sector2d", "sector2e"}
+
+_STRATEGY_REGISTRY = {
+    "v1":        ("configs.bond_v1",        "data.pipelines.bond_v1",       "strategies.bond_v1.backtest",       True),
+    "v2":        ("configs.bond_v2",        "data.pipelines.bond_v2",       "strategies.bond_v2.backtest",       True),
+    "v3":        ("configs.bond_v3",        "data.pipelines.bond_v3",       "strategies.bond_v3.backtest",       True),
+    "sector":    ("configs.sector_v1",      "data.pipelines.sector_v1",     "strategies.sector_v1.backtest",     False),
+    "sector2":   ("configs.sector_v2",      "data.pipelines.sector_v2",     "strategies.sector_v2.backtest",     False),
+    "sector2b":  ("configs.sector_v2b",     "data.pipelines.sector_v2b",    "strategies.sector_v2b.backtest",    False),
+    "sector2c":  ("configs.sector_v2c",     "data.pipelines.sector_v2c",    "strategies.sector_v2c.backtest",    False),
+    "sector2d":  ("configs.sector_v2d",     "data.pipelines.sector_v2d",    "strategies.sector_v2d.backtest",    False),
+    "sector2e":  ("configs.sector_v2e",     "data.pipelines.sector_v2e",    "strategies.sector_v2e.backtest",    False),
+}
+
+_BEST_PARAMS_SUFFIX = {
+    "v1": "",  "v2": "_v2",  "v3": "_v3",
+    "sector": "_sector",  "sector2": "_sector2",
+    "sector2b": "_sector2b",  "sector2c": "_sector2c",
+    "sector2d": "_sector2d",  "sector2e": "_sector2e",
+}
+
+
 def _compute_weights(version: str):
     """Return (effective_weights Series, as_of date) for a strategy version."""
-    if version == "v3":
-        import configs.bond_v3 as cfg
-        from data.pipelines.bond_v3 import load_all
-        from strategies.bond_v3.backtest import run, effective_weights
-    elif version == "v2":
-        import configs.bond_v2 as cfg
-        from data.pipelines.bond_v2 import load_all
-        from strategies.bond_v2.backtest import run, effective_weights
-    else:
-        import configs.bond_v1 as cfg
-        from data.pipelines.bond_v1 import load_all
-        from strategies.bond_v1.backtest import run, effective_weights
+    import importlib, json
+
+    if version not in _STRATEGY_REGISTRY:
+        raise ValueError(f"Unknown strategy '{version}'. Known: {sorted(_STRATEGY_REGISTRY)}")
+
+    cfg_path, pipeline_path, backtest_path, has_macro = _STRATEGY_REGISTRY[version]
+    cfg          = importlib.import_module(cfg_path)
+    pipeline_mod = importlib.import_module(pipeline_path)
+    backtest_mod = importlib.import_module(backtest_path)
 
     # Load best params if available
-    suffix = f"_{version}" if version != "v1" else ""
+    suffix    = _BEST_PARAMS_SUFFIX.get(version, f"_{version}")
     best_file = os.path.join(os.path.dirname(__file__), f"best_params{suffix}.json")
     if os.path.exists(best_file):
-        import json
         with open(best_file) as f:
             params = json.load(f)
         for k, v in params.items():
             setattr(cfg, k, v)
         logger.info("Loaded best params from %s", best_file)
 
-    macro, prices = load_all()
-    results = run(macro, prices)
+    if has_macro:
+        macro, prices = pipeline_mod.load_all()
+        results = backtest_mod.run(macro, prices)
+    else:
+        prices  = pipeline_mod.load_all()
+        results = backtest_mod.run(prices)
 
     signal_w = results["weights"].iloc[-1]
-    as_of = results["weights"].index[-1].date()
-    eff_w = effective_weights(signal_w, prices[cfg.ETF_UNIVERSE])
+    as_of    = results["weights"].index[-1].date()
+    eff_w    = backtest_mod.effective_weights(signal_w, prices[cfg.ETF_UNIVERSE])
 
     return eff_w, as_of
 
@@ -78,10 +104,14 @@ def main():
     out_dir = os.path.join(os.path.dirname(__file__), "positions")
     os.makedirs(out_dir, exist_ok=True)
 
+    _raw = os.environ.get("DAILY_STRATEGIES", "v1,v2,v3")
+    strategies = [s.strip() for s in _raw.split(",") if s.strip()]
+    logger.info("Computing weights for strategies: %s", strategies)
+
     prev_df = _load_previous(out_dir, today)
 
     rows = []
-    for version in ["v1", "v2", "v3"]:
+    for version in strategies:
         try:
             eff_w, as_of = _compute_weights(version)
 
@@ -173,9 +203,10 @@ def _write_email_files(df: pd.DataFrame, today: str) -> None:
     pos_url = f"https://github.com/{repo}/tree/main/positions"
     run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if run_id else ""
 
+    strategies = df["strategy"].unique().tolist()
     trades_by_version: dict[str, pd.DataFrame] = {}
     any_trades = False
-    for version in ["v1", "v2", "v3"]:
+    for version in strategies:
         vdf    = df[df["strategy"] == version]
         trades = vdf[vdf["action"] != "HOLD"].sort_values("delta_pct", key=abs, ascending=False)
         trades_by_version[version] = trades
@@ -190,7 +221,7 @@ def _write_email_files(df: pd.DataFrame, today: str) -> None:
 
     lines = [subject, ""]
 
-    for version in ["v1", "v2", "v3"]:
+    for version in strategies:
         trades = trades_by_version[version]
         n = len(trades)
         if n == 0:

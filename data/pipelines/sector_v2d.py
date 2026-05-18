@@ -1,19 +1,6 @@
-"""Data pipeline for the V2d sector rotation strategy (liquid-filtered V2c universe)."""
+"""Data pipeline for the V2d sector rotation strategy."""
 import configs.sector_v2d as config
 from data.pipelines.sector_base import load_all as _base_load_all
 
-_LABEL = "V2d sector"
-_CACHE = "sector_v2d_prices.csv"
-
-
 def load_all(force: bool = False):
-    return _base_load_all(config, _CACHE, _LABEL, force=force)
-
-
-if __name__ == "__main__":
-    import logging as _logging
-    _logging.basicConfig(level=_logging.INFO, format="%(levelname)s  %(message)s")
-    prices = load_all(force=True)
-    print(f"\nPrice data: {prices.shape}  ({prices.index[0].date()} → {prices.index[-1].date()})")
-    print("Columns:", list(prices.columns))
-    print("\nLatest prices:\n", prices.tail(2).T)
+    return _base_load_all(config, "sector_v2d_prices.csv", "sector V2d", force=force)

@@ -117,3 +117,35 @@ PRICE_SPIKE_THRESHOLD = 0.15  # warn if any ETF moves > 15% in a single day
 # --- Paths ---
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "cache")
 LOG_DIR  = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
+
+# --- Optimisation search space ---
+PARAM_SPACE = {
+    "LOOKBACK_SIGNAL":  ("int",    84, 504, 21),
+    "LOOKBACK_VOL":     ("int",    21, 126, 21),
+    "MOMENTUM_WINDOW":  ("int",   126, 504, 21),
+    "MOMENTUM_SKIP":    ("int",     0,  42,  5),
+    "MAX_CREDIT_ALLOC": ("float", 0.30, 0.80, 0.05),
+    "MAX_TIP_ALLOC":    ("float", 0.00, 0.30, 0.05),
+    "SIGNAL_BLEND":     ("float", 0.00, 1.00, 0.10),
+    "VOL_TARGET":       ("float", 0.05, 0.15, 0.01),
+    "VIX_RISK_OFF":     ("float", 18.0, 40.0, 1.0),
+    "VIX_RISK_ON":      ("float", 10.0, 22.0, 1.0),
+    "DD_THRESHOLD":     ("float", -0.15, -0.02, 0.01),
+    "DD_SCALE":         ("float",  0.00,  0.50, 0.05),
+    "TRAILING_STOP_PCT":    ("float", 0.03, 0.15, 0.01),
+    "TRAILING_STOP_WINDOW": ("int",   21,  126,  21),
+    "MAX_ALT_ALLOC":      ("float", 0.20, 0.60, 0.05),
+    "W_DURATION_2S10S":   ("float", 0.05, 0.40, 0.05),
+    "W_DURATION_10Y3M":   ("float", 0.05, 0.40, 0.05),
+    "W_DURATION_FED":     ("float", 0.05, 0.30, 0.05),
+    "W_DURATION_REALYLD": ("float", 0.10, 0.50, 0.05),
+    "W_DURATION_LABOR":   ("float", 0.00, 0.25, 0.05),
+    "W_DURATION_ISM":     ("float", 0.00, 0.25, 0.05),
+    "W_CREDIT_HYOAS":     ("float", 0.15, 0.60, 0.05),
+    "W_CREDIT_IGMOM":     ("float", 0.05, 0.35, 0.05),
+    "W_CREDIT_VIX":       ("float", 0.10, 0.50, 0.05),
+    "W_CREDIT_FEDQT":     ("float", 0.05, 0.35, 0.05),
+    "W_CREDIT_TED":       ("float", 0.05, 0.35, 0.05),
+    "W_INFLATION_BEI":    ("float", 0.20, 0.80, 0.10),
+    "W_INFLATION_CPI":    ("float", 0.20, 0.80, 0.10),
+}

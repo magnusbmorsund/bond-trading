@@ -30,76 +30,6 @@ from analysis.performance import sharpe, max_drawdown, summary
 
 logger = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Parameter spaces
-# ---------------------------------------------------------------------------
-
-PARAM_SPACE = {
-    # Lookback windows
-    "LOOKBACK_SIGNAL":  ("int",    84, 504, 21),
-    "LOOKBACK_VOL":     ("int",    21, 126, 21),
-    "MOMENTUM_WINDOW":  ("int",   126, 504, 21),
-    "MOMENTUM_SKIP":    ("int",     0,  42,  5),
-    # Allocation caps
-    "MAX_CREDIT_ALLOC": ("float", 0.30, 0.80, 0.05),
-    "MAX_TIP_ALLOC":    ("float", 0.00, 0.30, 0.05),
-    "SIGNAL_BLEND":     ("float", 0.00, 1.00, 0.10),
-    # Vol/leverage
-    "VOL_TARGET":       ("float", 0.05, 0.15, 0.01),
-    # VIX thresholds
-    "VIX_RISK_OFF":     ("float", 18.0, 40.0, 1.0),
-    "VIX_RISK_ON":      ("float", 10.0, 22.0, 1.0),
-    # Drawdown overlay
-    "DD_THRESHOLD":     ("float", -0.15, -0.02, 0.01),
-    "DD_SCALE":         ("float",  0.00,  0.50, 0.05),
-    # Per-position trailing stops
-    "TRAILING_STOP_PCT":    ("float", 0.03, 0.15, 0.01),
-    "TRAILING_STOP_WINDOW": ("int",   21,  126,  21),
-    # Commodity allocation budget
-    "MAX_ALT_ALLOC":      ("float", 0.20, 0.60, 0.05),
-    # Duration composite weights
-    "W_DURATION_2S10S":   ("float", 0.05, 0.40, 0.05),
-    "W_DURATION_10Y3M":   ("float", 0.05, 0.40, 0.05),
-    "W_DURATION_FED":     ("float", 0.05, 0.30, 0.05),
-    "W_DURATION_REALYLD": ("float", 0.10, 0.50, 0.05),
-    "W_DURATION_LABOR":   ("float", 0.00, 0.25, 0.05),
-    "W_DURATION_ISM":     ("float", 0.00, 0.25, 0.05),
-    # Credit composite weights
-    "W_CREDIT_HYOAS":     ("float", 0.15, 0.60, 0.05),
-    "W_CREDIT_IGMOM":     ("float", 0.05, 0.35, 0.05),
-    "W_CREDIT_VIX":       ("float", 0.10, 0.50, 0.05),
-    "W_CREDIT_FEDQT":     ("float", 0.05, 0.35, 0.05),
-    "W_CREDIT_TED":       ("float", 0.05, 0.35, 0.05),
-    # Inflation composite weights
-    "W_INFLATION_BEI":    ("float", 0.20, 0.80, 0.10),
-    "W_INFLATION_CPI":    ("float", 0.20, 0.80, 0.10),
-}
-
-# Additional parameters only in v2 space
-V2_PARAM_ADDITIONS = {
-    "MAX_EQUITY_ALLOC":      ("float", 0.00, 0.30, 0.05),
-    "MAX_REALESTATE_ALLOC":  ("float", 0.00, 0.15, 0.05),
-    "W_COMMODITY_USD":       ("float", 0.00, 0.50, 0.05),
-    "VTIP_DURATION_SCALE":   ("float", 0.10, 1.50, 0.10),
-}
-
-# Additional parameters only in v3 space (extends v2 additions)
-V3_PARAM_ADDITIONS = {
-    "MAX_EQUITY_ALLOC":           ("float", 0.00, 0.30, 0.05),
-    "MAX_REALESTATE_ALLOC":       ("float", 0.00, 0.15, 0.05),
-    "MAX_MANAGED_FUTURES_ALLOC":  ("float", 0.00, 0.20, 0.05),
-    "W_COMMODITY_USD":            ("float", 0.00, 0.50, 0.05),
-    "VTIP_DURATION_SCALE":        ("float", 0.10, 1.50, 0.10),
-    "EDV_DURATION_SCORE":         ("float", 1.50, 4.00, 0.25),
-    "MF_SIGNAL_SCALE":            ("float", 0.10, 1.00, 0.10),
-    "W_CREDIT_IMPULSE":           ("float", 0.05, 0.30, 0.05),
-    "W_CREDIT_VIX_TS":            ("float", 0.00, 0.25, 0.05),
-    "W_GROWTH_ISM":               ("float", 0.10, 0.60, 0.10),
-    "W_GROWTH_INDPRO":            ("float", 0.10, 0.60, 0.10),
-    "W_GROWTH_LABOR":             ("float", 0.10, 0.60, 0.10),
-}
-
 BEST_PARAMS_PATH                  = os.path.join(os.path.dirname(__file__), "best_params.json")
 BEST_PARAMS_V2_PATH               = os.path.join(os.path.dirname(__file__), "best_params_v2.json")
 BEST_PARAMS_V3_PATH               = os.path.join(os.path.dirname(__file__), "best_params_v3.json")
@@ -735,21 +665,21 @@ def run_optimization(n_trials: int = 300, v2: bool = False, v3: bool = False, se
         import configs.bond_v3 as cfg_mod
         from data.pipelines.bond_v3    import load_all as _load_all
         from strategies.bond_v3.backtest import run as _run
-        param_space = {**PARAM_SPACE, **V3_PARAM_ADDITIONS}
+        param_space = cfg_mod.PARAM_SPACE
         best_path   = BEST_PARAMS_V3_PATH
         label       = "V3"
     elif v2:
         import configs.bond_v2 as cfg_mod
         from data.pipelines.bond_v2    import load_all as _load_all
         from strategies.bond_v2.backtest import run as _run
-        param_space = {**PARAM_SPACE, **V2_PARAM_ADDITIONS}
+        param_space = cfg_mod.PARAM_SPACE
         best_path   = BEST_PARAMS_V2_PATH
         label       = "V2"
     else:
         cfg_mod     = config
         _load_all   = load_all
         _run        = run
-        param_space = PARAM_SPACE
+        param_space = config.PARAM_SPACE
         best_path   = BEST_PARAMS_PATH
         label       = "V1"
 

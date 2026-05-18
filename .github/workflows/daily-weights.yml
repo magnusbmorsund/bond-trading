@@ -31,6 +31,11 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: python daily_weights.py
 
+      - name: Rotate old positions files
+        run: |
+          find positions/ -maxdepth 1 -name "????-??-??.xlsx" -mtime +30 -delete
+          find positions/ -maxdepth 1 -name "????-??-??_*.csv" -mtime +30 -delete
+
       - name: Commit positions
         run: |
           git config user.name "github-actions[bot]"
