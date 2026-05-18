@@ -20,9 +20,31 @@ def _price_is_fresh(last_date: pd.Timestamp) -> bool:
 
 
 def _fetch(config, path: str, label: str) -> pd.DataFrame:
+    """Fetch sector prices. Priority: Supabase → yfinance."""
     tickers = config.ALL_TICKERS
-    raw     = yf.download(tickers, start=config.BACKTEST_START, auto_adjust=True, progress=False)
-    prices  = raw["Close"]
+    start   = config.BACKTEST_START
+
+    from data.supabase_client import is_configured, fetch_prices as sb_fetch
+    if is_configured():
+        try:
+            prices = sb_fetch(tickers, start)
+            if isinstance(prices, pd.Series):
+                prices = prices.to_frame()
+            daily_ret = prices.pct_change()
+            spikes    = daily_ret.abs() > config.PRICE_SPIKE_THRESHOLD
+            for etf in spikes.columns:
+                for dt in spikes[etf][spikes[etf]].index:
+                    logger.warning("Price spike: %s on %s moved %+.1f%%",
+                                   etf, dt.date(), daily_ret.loc[dt, etf] * 100)
+            prices.to_csv(path)
+            logger.info("Fetched %s prices from Supabase: %d tickers × %d days",
+                        label, len(tickers), len(prices))
+            return prices
+        except Exception as exc:
+            logger.warning("Supabase fetch failed for %s, falling back to yfinance: %s", label, exc)
+
+    raw    = yf.download(tickers, start=start, auto_adjust=True, progress=False)
+    prices = raw["Close"]
     if isinstance(prices, pd.Series):
         prices = prices.to_frame()
 
@@ -34,7 +56,7 @@ def _fetch(config, path: str, label: str) -> pd.DataFrame:
                            etf, dt.date(), daily_ret.loc[dt, etf] * 100)
 
     prices.to_csv(path)
-    logger.info("Fetched %s prices: %d tickers × %d days", label, len(tickers), len(prices))
+    logger.info("Fetched %s prices from yfinance: %d tickers × %d days", label, len(tickers), len(prices))
     return prices
 
 

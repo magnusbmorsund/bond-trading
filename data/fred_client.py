@@ -66,8 +66,8 @@ def _fetch_from_fred(series_id: str, start: str) -> pd.Series:
 
 
 def fetch_series(series_id: str, start: str = "2000-01-01", force: bool = False) -> pd.Series:
-    """Return a FRED series as a daily pd.Series, using local cache when fresh.
-    Falls back to stale cache if FRED is unreachable after retries."""
+    """Return a FRED series as a pd.Series. Priority: local CSV cache → Supabase → FRED API.
+    Falls back to stale cache if all remote sources are unreachable."""
     path = _cache_path(series_id)
 
     if os.path.exists(path):
@@ -75,22 +75,38 @@ def fetch_series(series_id: str, start: str = "2000-01-01", force: bool = False)
         if not force and _is_fresh(series_id, cached):
             return cached
 
-        # Stale cache — try to refresh
         age_days = (pd.Timestamp.today() - cached.index[-1]).days
+
+        # Try Supabase first when configured
+        from data.supabase_client import is_configured, fetch_fred as sb_fetch_fred
+        if is_configured():
+            try:
+                df = sb_fetch_fred([series_id], start)
+                if series_id in df.columns:
+                    data = df[series_id].dropna()
+                    data.name = series_id
+                    # Preserve any historical rows Supabase may not have
+                    if len(cached) > 0 and cached.index[0] < data.index[0]:
+                        pre = cached[cached.index < data.index[0]]
+                        data = pd.concat([pre, data]).sort_index()
+                    data.to_csv(path, header=True)
+                    logger.info("Fetched FRED:%s from Supabase (%d obs)", series_id, len(data))
+                    return data
+            except Exception as exc:
+                logger.warning("Supabase FRED fetch failed for %s, trying FRED API: %s", series_id, exc)
+
+        # Fall back to FRED API
         try:
             data = _fetch_from_fred(series_id, start)
-            # If FRED returned fewer rows and our cache starts earlier (FRED truncated
-            # the series), preserve historical cache rows and append only the new tail.
             if len(data) < len(cached) and len(data) > 0 and data.index[0] > cached.index[0]:
                 pre = cached[cached.index < data.index[0]]
                 data = pd.concat([pre, data]).sort_index()
                 logger.info(
-                    "FRED:%s truncated upstream (%d obs) — preserved %d historical rows, "
-                    "combined=%d",
-                    series_id, len(data) - len(pre), len(pre), len(data),
+                    "FRED:%s truncated upstream — preserved %d historical rows, combined=%d",
+                    series_id, len(pre), len(data),
                 )
             data.to_csv(path, header=True)
-            logger.info("Fetched FRED:%s  (%d obs)", series_id, len(data))
+            logger.info("Fetched FRED:%s from API (%d obs)", series_id, len(data))
             return data
         except Exception as exc:
             logger.warning(
@@ -99,10 +115,23 @@ def fetch_series(series_id: str, start: str = "2000-01-01", force: bool = False)
             )
             return cached
 
-    # No cache at all — must fetch; let exception propagate so caller knows
+    # No cache — try Supabase, then FRED API; let exception propagate on total failure
+    from data.supabase_client import is_configured, fetch_fred as sb_fetch_fred
+    if is_configured():
+        try:
+            df = sb_fetch_fred([series_id], start)
+            if series_id in df.columns:
+                data = df[series_id].dropna()
+                data.name = series_id
+                data.to_csv(path, header=True)
+                logger.info("Fetched FRED:%s from Supabase (%d obs)", series_id, len(data))
+                return data
+        except Exception as exc:
+            logger.warning("Supabase FRED fetch failed for %s, trying FRED API: %s", series_id, exc)
+
     data = _fetch_from_fred(series_id, start)
     data.to_csv(path, header=True)
-    logger.info("Fetched FRED:%s  (%d obs)", series_id, len(data))
+    logger.info("Fetched FRED:%s from API (%d obs)", series_id, len(data))
     return data
 
 

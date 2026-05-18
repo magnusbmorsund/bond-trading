@@ -26,7 +26,9 @@ jobs:
 
       - name: Compute daily weights
         env:
-          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          FRED_API_KEY:              ${{ secrets.FRED_API_KEY }}
+          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: python daily_weights.py
 
       - name: Commit positions

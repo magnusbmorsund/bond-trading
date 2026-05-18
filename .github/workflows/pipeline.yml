@@ -1,0 +1,40 @@
+name: Data Pipeline
+
+on:
+  schedule:
+    # 22:00 UTC = midnight CET — 30+ minutes after US market close (21:00 UTC / 5pm ET)
+    - cron: "0 22 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Lookback days (0 = auto-detect from Supabase latest)"
+        required: false
+        default: "7"
+
+permissions:
+  contents: read
+
+jobs:
+  fetch-and-store:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch prices and FRED, upsert to Supabase
+        env:
+          FRED_API_KEY:             ${{ secrets.FRED_API_KEY }}
+          SUPABASE_URL:             ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          DAYS="${{ github.event.inputs.days || '7' }}"
+          python scripts/data_pipeline.py --days "$DAYS"

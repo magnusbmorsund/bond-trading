@@ -73,11 +73,55 @@ to the strategy's effective weights (trailing-stop adjusted).
 **Note:** Trailing stops are computed in software via `effective_weights()` — the same
 values shown by `python main.py weights`. No native IBKR trailing-stop orders are placed.
 
-## Data Caching
+## Data Pipeline
 
-- ETF prices and VIX: `data/cache/etf_prices.csv`, `data/cache/vix.csv` — refreshed when behind the last trading day
-- FRED series: `data/cache/fred_<SERIES>.csv` — daily series refresh every 2 days, monthly series (CPI, FEDFUNDS, UNRATE, INDPRO) every 35 days, weekly (WALCL, TEDRATE) every 10 days
-- Cache is committed to `.gitignore` (not tracked) — `python main.py fetch` to populate
+### Supabase (primary store)
+
+All market data lives in the `magnus-trading` Supabase project — two tables:
+- `etf_prices (date, ticker, close)` — all 61+ ETF tickers + `^VIX`, from 2000-01-01
+- `fred_series (date, series_id, value)` — 16 FRED macro series
+
+Schema: `db/schema.sql` (run once in Supabase SQL editor).
+
+**Required env vars:**
+```
+SUPABASE_URL=https://<project>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<service-role-key>   # never commit — add to GitHub Secrets
+```
+
+When both vars are set, all data clients prefer Supabase over yfinance/FRED API.
+When unset, falls back to local CSV cache + yfinance/FRED (original behaviour — safe for offline use).
+
+### GitHub Actions pipeline
+
+`.github/workflows/pipeline.yml` runs at **22:00 UTC Mon–Fri** (midnight CET, after US market close):
+1. Fetches last 7 days of prices for all tickers from yfinance
+2. Fetches updated FRED series
+3. Upserts both to Supabase
+
+The existing `daily-weights.yml` (runs at 13:30 UTC) reads prices from Supabase — no yfinance dependency during live operation.
+
+### Local cache
+
+`data/cache/*.csv` files are still written as a local cache layer (git-ignored). When strategies run:
+1. If local CSV is fresh → use it (fast, no network)
+2. If stale and `SUPABASE_URL` set → fetch from Supabase → save to CSV
+3. If stale and no Supabase → fetch directly from yfinance/FRED → save to CSV
+
+### One-time historical backfill
+
+After running `db/schema.sql` and setting env vars:
+```bash
+python data/backfill.py     # loads all local CSVs → Supabase (~5 min, idempotent)
+```
+
+### Daily manual run
+
+```bash
+python scripts/data_pipeline.py            # fetch last 7 days
+python scripts/data_pipeline.py --days 0   # auto-detect from Supabase latest date
+python scripts/data_pipeline.py --days 30  # wider lookback
+```
 
 ## Optuna Optimization
 

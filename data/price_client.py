@@ -58,7 +58,7 @@ def _sanity_check_prices(prices: pd.DataFrame) -> None:
 def fetch_prices(start: str = "2000-01-01", force: bool = False) -> pd.DataFrame:
     """
     Return adjusted close prices for all ETFs as a DataFrame.
-    Uses local cache; refreshes if stale (>1 trading day old).
+    Priority: local CSV cache → Supabase → yfinance.
     """
     tickers = ETF_UNIVERSE
     path = _cache_path()
@@ -68,16 +68,28 @@ def fetch_prices(start: str = "2000-01-01", force: bool = False) -> pd.DataFrame
         if _price_is_fresh(cached.index[-1]):
             return cached
 
+    # Prefer Supabase over direct yfinance when configured
+    from data.supabase_client import is_configured, fetch_prices as sb_fetch
+    if is_configured():
+        try:
+            prices = sb_fetch(tickers, start)
+            _sanity_check_prices(prices)
+            prices.to_csv(path)
+            logger.info("Fetched prices from Supabase: %d tickers × %d days", len(tickers), len(prices))
+            return prices
+        except Exception as exc:
+            logger.warning("Supabase price fetch failed, falling back to yfinance: %s", exc)
+
     raw    = yf.download(tickers, start=start, auto_adjust=True, progress=False)
     prices = raw["Close"]
     _sanity_check_prices(prices)
     prices.to_csv(path)
-    logger.info("Fetched prices for %d tickers  (%d trading days)", len(tickers), len(prices))
+    logger.info("Fetched prices from yfinance: %d tickers × %d days", len(tickers), len(prices))
     return prices
 
 
 def fetch_vix(start: str = "2000-01-01", force: bool = False) -> pd.Series:
-    """Fetch VIX index (^VIX) as a daily Series, with local cache."""
+    """Fetch VIX index (^VIX) as a daily Series. Priority: local CSV → Supabase → yfinance."""
     os.makedirs(DATA_DIR, exist_ok=True)
     path = os.path.join(DATA_DIR, "vix.csv")
 
@@ -86,9 +98,21 @@ def fetch_vix(start: str = "2000-01-01", force: bool = False) -> pd.Series:
         if _price_is_fresh(cached.index[-1]):
             return cached
 
+    from data.supabase_client import is_configured, fetch_prices as sb_fetch
+    if is_configured():
+        try:
+            df = sb_fetch(["^VIX"], start)
+            if "^VIX" in df.columns:
+                vix = df["^VIX"].rename("vix")
+                vix.to_csv(path, header=True)
+                logger.info("Fetched VIX from Supabase (%d days)", len(vix))
+                return vix
+        except Exception as exc:
+            logger.warning("Supabase VIX fetch failed, falling back to yfinance: %s", exc)
+
     raw = yf.download("^VIX", start=start, auto_adjust=True, progress=False)
     vix = raw["Close"].squeeze()
     vix.name = "vix"
     vix.to_csv(path, header=True)
-    logger.info("Fetched VIX  (%d trading days)", len(vix))
+    logger.info("Fetched VIX from yfinance (%d trading days)", len(vix))
     return vix
