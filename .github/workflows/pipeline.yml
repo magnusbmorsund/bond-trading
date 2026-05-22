@@ -35,6 +35,7 @@ jobs:
           FRED_API_KEY:             ${{ secrets.FRED_API_KEY }}
           SUPABASE_URL:             ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PYTHONPATH:               ${{ github.workspace }}
         run: |
           DAYS="${{ github.event.inputs.days || '7' }}"
           python scripts/data_pipeline.py --days "$DAYS"
