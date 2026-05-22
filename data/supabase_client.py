@@ -16,8 +16,8 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-_UPSERT_BATCH = 500   # rows per Supabase upsert call
-_SELECT_LIMIT = 5_000_000  # generous upper bound for full-history reads
+_UPSERT_BATCH = 500    # rows per Supabase upsert call
+_PAGE_SIZE    = 1000   # PostgREST server cap; we paginate around it
 
 
 def is_configured() -> bool:
@@ -42,22 +42,34 @@ def fetch_prices(tickers: list[str], start: str = "2000-01-01") -> pd.DataFrame:
     """
     Fetch adjusted close prices from Supabase.
     Returns a wide DataFrame (DatetimeIndex × ticker columns), sorted by date.
+    Paginates automatically because PostgREST server caps single responses at 1000 rows.
     """
     sb = _client()
-    result = (
-        sb.table("etf_prices")
-        .select("date,ticker,close")
-        .in_("ticker", tickers)
-        .gte("date", start)
-        .limit(_SELECT_LIMIT)
-        .execute()
-    )
-    if not result.data:
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        batch = (
+            sb.table("etf_prices")
+            .select("date,ticker,close")
+            .in_("ticker", tickers)
+            .gte("date", start)
+            .order("date")
+            .limit(_PAGE_SIZE)
+            .offset(offset)
+            .execute()
+        )
+        rows.extend(batch.data)
+        if len(batch.data) < _PAGE_SIZE:
+            break
+        offset += _PAGE_SIZE
+
+    if not rows:
         raise ValueError(
             f"No price data in Supabase for tickers={tickers[:5]}... start={start}"
         )
 
-    df = pd.DataFrame(result.data)
+    logger.debug("Fetched %d raw rows for %d tickers", len(rows), len(tickers))
+    df = pd.DataFrame(rows)
     df["date"] = pd.to_datetime(df["date"])
     wide = df.pivot(index="date", columns="ticker", values="close")
     wide.index.name = "Date"
@@ -105,20 +117,30 @@ def fetch_fred(series_ids: list[str], start: str = "2000-01-01") -> pd.DataFrame
     Returns a wide DataFrame (DatetimeIndex × series_id columns), sorted by date.
     """
     sb = _client()
-    result = (
-        sb.table("fred_series")
-        .select("date,series_id,value")
-        .in_("series_id", series_ids)
-        .gte("date", start)
-        .limit(_SELECT_LIMIT)
-        .execute()
-    )
-    if not result.data:
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        batch = (
+            sb.table("fred_series")
+            .select("date,series_id,value")
+            .in_("series_id", series_ids)
+            .gte("date", start)
+            .order("date")
+            .limit(_PAGE_SIZE)
+            .offset(offset)
+            .execute()
+        )
+        rows.extend(batch.data)
+        if len(batch.data) < _PAGE_SIZE:
+            break
+        offset += _PAGE_SIZE
+
+    if not rows:
         raise ValueError(
             f"No FRED data in Supabase for series={series_ids[:5]}... start={start}"
         )
 
-    df = pd.DataFrame(result.data)
+    df = pd.DataFrame(rows)
     df["date"] = pd.to_datetime(df["date"])
     wide = df.pivot(index="date", columns="series_id", values="value")
     wide.index.name = None
