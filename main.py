@@ -5,7 +5,6 @@ Usage:
   python main.py fetch    [STRATEGY]
   python main.py backtest [STRATEGY] [--best] [--stop-freq daily|weekly|monthly]
   python main.py weights  [STRATEGY]
-  python main.py trade    [STRATEGY] [--dry-run]
   python main.py optimize [STRATEGY] [--trials N]
   python main.py compare
   python main.py compare-sector
@@ -21,12 +20,6 @@ Available strategies (default: v1):
   sector2c  Sector V2c        (cross-asset + correlation filter + cluster caps)
   sector2d  Sector V2d        (V2c universe, liquid ETFs only ≥$100M/day)
   sector2e  Sector V2e        (V2d + 24m/36m supercycle momentum lookbacks)
-
-IBKR Gateway env vars (for the trade command):
-  IBKR_HOST          Gateway hostname     (default: 127.0.0.1)
-  IBKR_PORT          4002=paper 4001=live (default: 4002)
-  IBKR_CLIENT_ID     API client ID        (default: 1)
-  IBKR_MIN_ORDER_USD Min order size USD   (default: 50)
 """
 import sys
 import os
@@ -273,7 +266,7 @@ def cmd_weights(strategy: str, stop_freq: str = "daily"):
             print(f"  {etf:>4s}  {w:6.2%}  {'█' * int(w * 40)}")
     print(f"  {'─'*40}")
     print(f"  {'Sum':>4s}  {eff_w.sum():6.2%}")
-    print(f"\nFor IBKR: set each ETF as % of total portfolio value above.")
+    print(f"\nSet each ETF as % of total portfolio value above.")
 
     if hasattr(cfg, "STOP_TACTICAL"):
         rebal_freq = getattr(cfg, "REBALANCE_FREQ", "W")
@@ -298,91 +291,6 @@ def cmd_weights(strategy: str, stop_freq: str = "daily"):
             print(f"  Use a FIXED stop loss in Nordnet, update at each {rebal_word} rebalance")
     else:
         print(f"Trailing stop: {cfg.TRAILING_STOP_PCT:.0%} below {cfg.TRAILING_STOP_WINDOW}-day peak")
-
-
-def cmd_trade(strategy: str, dry_run: bool = False, stop_freq: str = "daily"):
-    from broker.ibkr_client import IBKRClient
-
-    # Issue #5: prevent concurrent invocations from racing on the same account state
-    lock_path = os.path.join(_BASE, ".trade_lock")
-    if os.path.exists(lock_path):
-        raise RuntimeError(
-            f"Trade already in progress (.trade_lock exists). "
-            "Delete the lock file if no trade is actually running."
-        )
-
-    s = _resolve(strategy, stop_freq)
-    cfg = s.config
-    if s.spec.needs_fred:
-        _validate_env(cfg)
-    _load_best(cfg, strategy, stop_freq)
-
-    logger.info("Loading data...")
-    macro, prices = s.load()
-
-    # Issue #4: ensure prices are fresh before computing trailing-stop peaks
-    last_cache_date = prices.index[-1].normalize()
-    today = pd.Timestamp.today().normalize()
-    days_stale = len(pd.bdate_range(last_cache_date + pd.Timedelta(days=1), today))
-    if days_stale > 1:
-        logger.info(
-            "Cached prices are %d trading day(s) stale — re-fetching before computing stops...",
-            days_stale,
-        )
-        macro, prices = s.load(force=True)
-
-    logger.info("Computing effective weights...")
-    results  = s.run(macro, prices)
-    signal_w = results["weights"].iloc[-1]
-    as_of    = results["weights"].index[-1].date()
-    etf_cols = getattr(cfg, "ETF_UNIVERSE", list(prices.columns))
-    eff_w    = s.eff_weights(signal_w, prices[etf_cols])
-    eff_w    = _validate_weights(eff_w, label="effective weights")
-
-    logger.info("Target weights [%s] as of %s:", s.spec.label, as_of)
-    for etf, w in eff_w.sort_values(ascending=False).items():
-        if w > 0.001:
-            logger.info("  %s  %.2f%%", etf, w * 100)
-
-    try:
-        open(lock_path, "w").close()
-        client = IBKRClient()
-        client.connect()
-        try:
-            net_liq        = client.get_net_liq()
-            current_shares = client.get_positions()
-            all_tickers    = list(set(eff_w.index.tolist()) | set(current_shares.keys()))
-            live_prices    = client.get_prices(all_tickers)
-            orders         = client.build_rebalance_orders(eff_w, net_liq, current_shares, live_prices)
-
-            if not orders:
-                print("\nNo orders needed — portfolio is already at target weights.")
-                return
-
-            client.print_preview(orders, net_liq)
-            if dry_run:
-                print("\n[dry-run] No orders submitted.")
-            else:
-                if input("\nSubmit orders? [y/N]: ").strip().lower() == "y":
-                    # Issue #1: refetch net_liq to catch account changes during user approval delay
-                    net_liq_now = client.get_net_liq()
-                    change_pct = abs(net_liq_now - net_liq) / net_liq
-                    if change_pct > 0.02:
-                        logger.error(
-                            "Account balance changed %.1f%% since preview "
-                            "(was $%,.0f, now $%,.0f) — aborting. Re-run to use fresh values.",
-                            change_pct * 100, net_liq, net_liq_now,
-                        )
-                        print("\nAborted — account balance changed >2% during approval. Please re-run.")
-                    else:
-                        client.submit_orders(orders)
-                else:
-                    print("Aborted — no orders submitted.")
-        finally:
-            client.disconnect()
-    finally:
-        if os.path.exists(lock_path):
-            os.remove(lock_path)
 
 
 def cmd_optimize(strategy: str, n_trials: int = 300, stop_freq: str = "daily"):
@@ -557,13 +465,6 @@ def main():
     p.add_argument("--stop-freq", default="daily", choices=["daily", "weekly", "monthly"],
                    dest="stop_freq", help=_STOP_FREQ_HELP)
 
-    p = sub.add_parser("trade", help="Execute rebalance via IBKR Gateway")
-    p.add_argument("strategy",    nargs="?", default="v1", choices=STRATEGY_CHOICES, help=_STRATEGY_HELP)
-    p.add_argument("--stop-freq", default="daily", choices=["daily", "weekly", "monthly"],
-                   dest="stop_freq", help=_STOP_FREQ_HELP)
-    p.add_argument("--dry-run",   action="store_true", dest="dry_run",
-                   help="Preview orders without submitting")
-
     p = sub.add_parser("optimize", help="Run Optuna hyperparameter search")
     p.add_argument("strategy",    nargs="?", default="v1", choices=STRATEGY_CHOICES, help=_STRATEGY_HELP)
     p.add_argument("--trials",    type=int, default=300, help="Number of Optuna trials")
@@ -589,7 +490,6 @@ def main():
     if   args.cmd == "fetch":          cmd_fetch(strategy)
     elif args.cmd == "backtest":       cmd_backtest(strategy, use_best=args.best, stop_freq=stop_freq)
     elif args.cmd == "weights":        cmd_weights(strategy, stop_freq=stop_freq)
-    elif args.cmd == "trade":          cmd_trade(strategy, dry_run=args.dry_run, stop_freq=stop_freq)
     elif args.cmd == "optimize":       cmd_optimize(strategy, n_trials=args.trials, stop_freq=stop_freq)
     elif args.cmd == "compare":        cmd_compare()
     elif args.cmd == "compare-sector": cmd_compare_sector()

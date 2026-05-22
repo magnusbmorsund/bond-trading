@@ -14,6 +14,7 @@ from datetime import date
 
 import pandas as pd
 from strategies.backtest_core import DEFAULT_COST_MODEL
+from main import REGISTRY
 
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s")
@@ -26,44 +27,20 @@ logger = logging.getLogger(__name__)
 _MIN_TRADE_PCT = 0.5
 
 
-_BOND_VERSIONS   = {"v1", "v2", "v3"}
-_SECTOR_VERSIONS = {"sector", "sector2", "sector2b", "sector2c", "sector2d", "sector2e"}
-
-_STRATEGY_REGISTRY = {
-    "v1":        ("configs.bond_v1",        "data.pipelines.bond_v1",       "strategies.bond_v1.backtest",       True),
-    "v2":        ("configs.bond_v2",        "data.pipelines.bond_v2",       "strategies.bond_v2.backtest",       True),
-    "v3":        ("configs.bond_v3",        "data.pipelines.bond_v3",       "strategies.bond_v3.backtest",       True),
-    "sector":    ("configs.sector_v1",      "data.pipelines.sector_v1",     "strategies.sector_v1.backtest",     False),
-    "sector2":   ("configs.sector_v2",      "data.pipelines.sector_v2",     "strategies.sector_v2.backtest",     False),
-    "sector2b":  ("configs.sector_v2b",     "data.pipelines.sector_v2b",    "strategies.sector_v2b.backtest",    False),
-    "sector2c":  ("configs.sector_v2c",     "data.pipelines.sector_v2c",    "strategies.sector_v2c.backtest",    False),
-    "sector2d":  ("configs.sector_v2d",     "data.pipelines.sector_v2d",    "strategies.sector_v2d.backtest",    False),
-    "sector2e":  ("configs.sector_v2e",     "data.pipelines.sector_v2e",    "strategies.sector_v2e.backtest",    False),
-}
-
-_BEST_PARAMS_SUFFIX = {
-    "v1": "",  "v2": "_v2",  "v3": "_v3",
-    "sector": "_sector",  "sector2": "_sector2",
-    "sector2b": "_sector2b",  "sector2c": "_sector2c",
-    "sector2d": "_sector2d",  "sector2e": "_sector2e",
-}
-
-
 def _compute_weights(version: str):
     """Return (effective_weights Series, as_of date) for a strategy version."""
     import importlib, json
 
-    if version not in _STRATEGY_REGISTRY:
-        raise ValueError(f"Unknown strategy '{version}'. Known: {sorted(_STRATEGY_REGISTRY)}")
+    if version not in REGISTRY:
+        raise ValueError(f"Unknown strategy '{version}'. Known: {sorted(REGISTRY)}")
 
-    cfg_path, pipeline_path, backtest_path, has_macro = _STRATEGY_REGISTRY[version]
-    cfg          = importlib.import_module(cfg_path)
-    pipeline_mod = importlib.import_module(pipeline_path)
-    backtest_mod = importlib.import_module(backtest_path)
+    spec         = REGISTRY[version]
+    cfg          = importlib.import_module(spec.config_path)
+    pipeline_mod = importlib.import_module(spec.pipeline_path)
+    backtest_mod = importlib.import_module(spec.backtest_path)
 
     # Load best params if available
-    suffix    = _BEST_PARAMS_SUFFIX.get(version, f"_{version}")
-    best_file = os.path.join(os.path.dirname(__file__), f"best_params{suffix}.json")
+    best_file = os.path.join(os.path.dirname(__file__), f"best_params{spec.params_suffix}.json")
     if os.path.exists(best_file):
         with open(best_file) as f:
             params = json.load(f)
@@ -71,7 +48,7 @@ def _compute_weights(version: str):
             setattr(cfg, k, v)
         logger.info("Loaded best params from %s", best_file)
 
-    if has_macro:
+    if spec.needs_fred:
         macro, prices = pipeline_mod.load_all()
         results = backtest_mod.run(macro, prices)
     else:

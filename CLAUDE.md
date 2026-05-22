@@ -40,38 +40,10 @@ export FRED_API_KEY=your_key_here
 python main.py weights v1        # → bond V1 positions (display only)
 python main.py weights v2        # → bond V2 positions
 python main.py weights sector2e  # → sector V2e positions (current best, weekly)
-python main.py trade v1          # → execute rebalance via IBKR Gateway
 ```
 
 Strategy is always a positional argument (not a flag). Default is `v1` if omitted.
 Available strategies: `v1`, `v2`, `v3`, `sector`, `sector2`, `sector2b`, `sector2c`, `sector2d`, `sector2e`.
-
-## IBKR Gateway Integration
-
-`python main.py trade [STRATEGY] [--dry-run]` connects to a running IBKR Gateway,
-fetches live account equity and positions, and submits `MarketOrder`s to rebalance
-to the strategy's effective weights (trailing-stop adjusted).
-
-**Prerequisites:** IBKR Gateway must be running and logged in before calling `trade`.
-
-**Ports:** 4002 = paper trading (default), 4001 = live account.
-
-**Environment variables (all optional):**
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `IBKR_HOST` | `127.0.0.1` | Gateway hostname |
-| `IBKR_PORT` | `4002` | 4002 = paper, 4001 = live |
-| `IBKR_CLIENT_ID` | `1` | API client ID (must be unique per active connection) |
-| `IBKR_MIN_ORDER_USD` | `50` | Skip orders smaller than this value |
-
-**Workflow:**
-1. Run `python main.py trade --dry-run` to preview orders without submitting
-2. Review the order table (current % → target % → Δ shares → est. $)
-3. Run `python main.py trade` and type `y` to submit
-
-**Note:** Trailing stops are computed in software via `effective_weights()` — the same
-values shown by `python main.py weights`. No native IBKR trailing-stop orders are placed.
 
 ## Data Pipeline
 

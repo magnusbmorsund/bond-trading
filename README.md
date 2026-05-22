@@ -312,8 +312,6 @@ bond-trading/
 │   └── cache/                  # git-ignored; populate with python main.py fetch
 ├── analysis/
 │   └── performance.py          # Metrics + all chart functions
-├── broker/
-│   └── ibkr_client.py          # IBKR Gateway API client
 ├── best_params_sector2e.json   # Sector V2e optimised parameters ← primary
 ├── best_params_sector2d.json
 ├── best_params_sector2b.json
