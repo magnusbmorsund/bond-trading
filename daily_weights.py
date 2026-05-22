@@ -28,7 +28,12 @@ _MIN_TRADE_PCT = 0.5
 
 
 def _compute_weights(version: str):
-    """Return (effective_weights Series, as_of date) for a strategy version."""
+    """Return (eff_w, as_of, stop_df) for a strategy version.
+
+    stop_df is a DataFrame with Nordnet trailing-stop info (etf index, columns:
+    weight_pct, m12, stop_pct, stop_price, pct_to_stop). None for bond strategies
+    that use a simple fixed stop with no per-ETF adaptive calculation.
+    """
     import importlib, json
 
     if version not in REGISTRY:
@@ -59,7 +64,26 @@ def _compute_weights(version: str):
     as_of    = results["weights"].index[-1].date()
     eff_w    = backtest_mod.effective_weights(signal_w, prices[cfg.ETF_UNIVERSE])
 
-    return eff_w, as_of
+    # Build stop table if the strategy has adaptive per-ETF stops (sector variants)
+    stop_df = None
+    if hasattr(backtest_mod, "compute_stop_pcts"):
+        raw = backtest_mod.compute_stop_pcts(eff_w, prices[cfg.ETF_UNIVERSE])
+        if not raw.empty:
+            raw.insert(0, "weight_pct", [round(eff_w.get(etf, 0) * 100, 2) for etf in raw.index])
+            raw["m12"]         = (raw["m12"] * 100).round(1)
+            raw["stop_pct"]    = (raw["stop_pct"] * 100).round(1)
+            raw["stop_price"]  = raw["stop_price"].round(2)
+            raw["pct_to_stop"] = (raw["pct_to_stop"] * 100).round(1)
+            raw = raw.rename(columns={
+                "weight_pct": "Weight%",
+                "m12":        "12M ret%",
+                "stop_pct":   "Stop%",
+                "stop_price": "Stop price",
+                "pct_to_stop":"Margin%",
+            }).drop(columns=["peak_price", "today"], errors="ignore")
+            stop_df = raw.reset_index()
+
+    return eff_w, as_of, stop_df
 
 
 def _load_previous(out_dir: str, today: str) -> pd.DataFrame | None:
@@ -88,9 +112,10 @@ def main():
     prev_df = _load_previous(out_dir, today)
 
     rows = []
+    stop_rows = []  # accumulates stop data across all strategies
     for version in strategies:
         try:
-            eff_w, as_of = _compute_weights(version)
+            eff_w, as_of, stop_df = _compute_weights(version)
 
             # Get previous weights for this strategy
             prev_weights = {}
@@ -131,6 +156,11 @@ def main():
                     "est_cost_bps": est_cost_bps,
                 })
 
+            if stop_df is not None:
+                stop_df.insert(0, "strategy", version)
+                stop_df.insert(1, "date", today)
+                stop_rows.append(stop_df)
+
             n_pos = sum(1 for r in rows if r["strategy"] == version and r["target_weight_pct"] > 0)
             n_trades = sum(1 for r in rows if r["strategy"] == version and r["action"] != "HOLD")
             logger.info("%s: %d positions, %d trades needed (as_of=%s)", version, n_pos, n_trades, as_of)
@@ -158,6 +188,9 @@ def main():
             pd.DataFrame([{"note": "No trades needed today"}]).to_excel(
                 writer, sheet_name="Orders", index=False
             )
+        if stop_rows:
+            stops_all = pd.concat(stop_rows, ignore_index=True)
+            stops_all.to_excel(writer, sheet_name="Stops", index=False)
     logger.info("Wrote %s (%d positions, %d trades)", xlsx_path, len(portfolio), len(orders))
 
     # --- Update history (for next day's comparison) ---
