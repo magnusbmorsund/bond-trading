@@ -233,7 +233,7 @@ def cmd_backtest(strategy: str, use_best: bool = False, stop_freq: str = "daily"
     plot_annual_allocations(results, save_path=os.path.join(_BASE, f"annual_allocations{suffix}.png"))
 
 
-def cmd_weights(strategy: str, stop_freq: str = "daily"):
+def cmd_weights(strategy: str, stop_freq: str = "daily", ucits: bool = False):
     s = _resolve(strategy, stop_freq)
     _load_best(s.config, strategy, stop_freq)
 
@@ -291,6 +291,52 @@ def cmd_weights(strategy: str, stop_freq: str = "daily"):
             print(f"  Use a FIXED stop loss in Nordnet, update at each {rebal_word} rebalance")
     else:
         print(f"Trailing stop: {cfg.TRAILING_STOP_PCT:.0%} below {cfg.TRAILING_STOP_WINDOW}-day peak")
+
+    if ucits:
+        _print_ucits_translation(eff_w, stop_df if hasattr(cfg, "STOP_TACTICAL") else None)
+
+
+def _print_ucits_translation(eff_w, stop_df):
+    """Translate effective positions to UCITS tickers for Nordnet retail."""
+    from configs.ucits_mapping import to_ucits
+
+    held = [(etf, w) for etf, w in eff_w.sort_values(ascending=False).items() if w > 0.001]
+    if not held:
+        return
+
+    print(f"\n{'='*78}")
+    print(f"UCITS EQUIVALENTS  (tradeable on Nordnet — use these, not the US tickers)")
+    print(f"{'='*78}")
+    print(f"  {'US':>5s}  {'UCITS':>7s}  {'Weight':>7s}  {'Stop%':>6s}  {'Exchange':>15s}  {'ISIN':>14s}  Status")
+    print(f"  {'─'*98}")
+
+    dropped = []
+    for us_ticker, w in held:
+        info = to_ucits(us_ticker)
+        if info is None:
+            dropped.append(us_ticker)
+            print(f"  {us_ticker:>5s}  {'—':>7s}  {w:7.2%}  {'—':>6s}  {'—':>15s}  {'—':>14s}  NO UCITS — drop")
+            continue
+
+        stop_pct_str = "—"
+        if stop_df is not None and us_ticker in stop_df.index:
+            stop_pct_str = f"{stop_df.loc[us_ticker, 'stop_pct']:.1%}"
+
+        print(f"  {us_ticker:>5s}  {info['ticker']:>7s}  {w:7.2%}  "
+              f"{stop_pct_str:>6s}  {info['exchange']:>15s}  {info['isin']:>14s}  {info['status']}")
+
+    print(f"  {'─'*98}")
+    print(f"  status: direct = UCITS tracks same index   proxy = similar but style drift")
+
+    if dropped:
+        print(f"\n  ⚠ {len(dropped)} position(s) have no UCITS equivalent — redistribute weight to others:")
+        for t in dropped:
+            print(f"    • {t}")
+
+    print(f"\n  For Nordnet:")
+    print(f"    1. Search by ISIN to find the exact listing")
+    print(f"    2. Set trailing stop ('glidende stop loss') with the Stop% above")
+    print(f"    3. Stop trails from price at order placement — let it run, don't reset weekly")
 
 
 def cmd_optimize(strategy: str, n_trials: int = 300, stop_freq: str = "daily"):
@@ -464,6 +510,8 @@ def main():
     p.add_argument("strategy",    nargs="?", default="v1", choices=STRATEGY_CHOICES, help=_STRATEGY_HELP)
     p.add_argument("--stop-freq", default="daily", choices=["daily", "weekly", "monthly"],
                    dest="stop_freq", help=_STOP_FREQ_HELP)
+    p.add_argument("--ucits",     action="store_true",
+                   help="Also print UCITS-equivalent tickers and ISINs for Nordnet retail trading")
 
     p = sub.add_parser("optimize", help="Run Optuna hyperparameter search")
     p.add_argument("strategy",    nargs="?", default="v1", choices=STRATEGY_CHOICES, help=_STRATEGY_HELP)
@@ -489,7 +537,7 @@ def main():
 
     if   args.cmd == "fetch":          cmd_fetch(strategy)
     elif args.cmd == "backtest":       cmd_backtest(strategy, use_best=args.best, stop_freq=stop_freq)
-    elif args.cmd == "weights":        cmd_weights(strategy, stop_freq=stop_freq)
+    elif args.cmd == "weights":        cmd_weights(strategy, stop_freq=stop_freq, ucits=getattr(args, "ucits", False))
     elif args.cmd == "optimize":       cmd_optimize(strategy, n_trials=args.trials, stop_freq=stop_freq)
     elif args.cmd == "compare":        cmd_compare()
     elif args.cmd == "compare-sector": cmd_compare_sector()
