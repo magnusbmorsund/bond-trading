@@ -69,6 +69,7 @@ REGISTRY: dict[str, StrategySpec] = {
     "sector2c": StrategySpec("Sector V2c", "configs.sector_v2c", "data.pipelines.sector_v2c", "strategies.sector_v2c.backtest", "_sector2c"),
     "sector2d": StrategySpec("Sector V2d", "configs.sector_v2d", "data.pipelines.sector_v2d", "strategies.sector_v2d.backtest", "_sector2d"),
     "sector2e": StrategySpec("Sector V2e", "configs.sector_v2e", "data.pipelines.sector_v2e", "strategies.sector_v2e.backtest", "_sector2e"),
+    "sector2f": StrategySpec("Sector V2f", "configs.sector_v2f", "data.pipelines.sector_v2f", "strategies.sector_v2f.backtest", "_sector2f"),
 }
 
 STRATEGY_CHOICES = list(REGISTRY.keys())
@@ -350,6 +351,7 @@ def cmd_optimize(strategy: str, n_trials: int = 300, stop_freq: str = "daily"):
         "sector2c": dict(sector2c=True),
         "sector2d": dict(sector2d=True),
         "sector2e": dict(sector2e=True),
+        "sector2f": dict(sector2f=True),
     }
     run_optimization(n_trials=n_trials, stop_freq=stop_freq, **flags.get(strategy, {}))
 

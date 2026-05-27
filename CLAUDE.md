@@ -43,7 +43,7 @@ python main.py weights sector2e  # → sector V2e positions (current best, weekl
 ```
 
 Strategy is always a positional argument (not a flag). Default is `v1` if omitted.
-Available strategies: `v1`, `v2`, `v3`, `sector`, `sector2`, `sector2b`, `sector2c`, `sector2d`, `sector2e`.
+Available strategies: `v1`, `v2`, `v3`, `sector`, `sector2`, `sector2b`, `sector2c`, `sector2d`, `sector2e`, `sector2f`.
 
 ## Data Pipeline
 
@@ -131,6 +131,8 @@ A separate strategy family runs pure momentum on a broad ETF universe with no FR
 
 **Current best strategy: `sector2e`** — V2d liquid universe + 24m/36m supercycle lookbacks. CAGR 43.6%, Sharpe 3.40, Max DD -7.3% (2005–2026, best params, no cash yield). Zero negative years 2005–2026. Full period (2000–2026): 38.2% CAGR — diluted by sparse ETF universe pre-2005.
 
+**For Norwegian retail (UCITS-only): `sector2f`** — V2e universe with XBI and IGV removed (no acceptable UCITS equivalents on Nordnet). Same params as V2e (no re-optimization needed). Performance over 2000–2026: 38.0% CAGR, Sharpe 3.25, Max DD -7.5% — within 0.1pp CAGR of V2e. Use `python main.py weights sector2f --ucits` to get tickers + ISINs ready for Nordnet.
+
 ### Strategy variants
 
 | Key | Config | Description |
@@ -140,7 +142,8 @@ A separate strategy family runs pure momentum on a broad ETF universe with no FR
 | `sector2b` | `configs/sector_v2b.py` | Weekly rebalance, expanded 37-ETF universe |
 | `sector2c` | `configs/sector_v2c.py` | Cross-asset + correlation filter + cluster caps |
 | `sector2d` | `configs/sector_v2d.py` | Liquid ETFs only (≥$100M/day ADV filter) |
-| `sector2e` | `configs/sector_v2e.py` | V2d universe + 24m/36m supercycle momentum lookbacks — **current best / production** |
+| `sector2e` | `configs/sector_v2e.py` | V2d universe + 24m/36m supercycle momentum lookbacks — **current best / production (US)** |
+| `sector2f` | `configs/sector_v2f.py` | V2e minus XBI and IGV — **UCITS-tradeable subset for Nordnet retail** |
 
 ### V2e-specific design: `_weighted_blend` NaN-safe helper
 
@@ -179,6 +182,10 @@ Each `configs/sector_v*.py` is standalone. Optuna patches it via `setattr(cfg, k
 python main.py weights sector2e       # today's positions + Nordnet stop prices
 python main.py backtest sector2e --best  # full backtest + charts
 python main.py optimize sector2e --trials 300
+
+# UCITS-tradeable variant (Nordnet retail)
+python main.py weights sector2f --ucits   # positions + UCITS tickers + ISIN
+python main.py backtest sector2f --best
 
 # Other variants
 python main.py weights sector2b
