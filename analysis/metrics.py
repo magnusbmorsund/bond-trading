@@ -17,7 +17,16 @@ def max_drawdown(nav: pd.Series) -> float:
 def calmar(nav: pd.Series, returns: pd.Series, periods: int = 252) -> float:
     ann_ret = (nav.iloc[-1] ** (periods / len(returns))) - 1
     mdd = abs(max_drawdown(nav))
-    return ann_ret / mdd if mdd > 0 else np.nan
+    if mdd > 0:
+        return ann_ret / mdd
+    # Zero drawdown: calmar = return / 0 is mathematically infinite. Preserve the
+    # sign so a profitable, never-drawing strategy reads as +inf (not nan, which
+    # would discard the "this is good" signal). Flat strategy → nan.
+    if ann_ret > 0:
+        return float("inf")
+    if ann_ret < 0:
+        return float("-inf")
+    return np.nan
 
 
 def drawdown_series(nav: pd.Series) -> pd.Series:
