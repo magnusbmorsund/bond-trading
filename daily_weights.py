@@ -260,7 +260,11 @@ def _write_email_files(df: pd.DataFrame, today: str) -> None:
     with open("/tmp/email_subject.txt", "w") as f:
         f.write(subject)
     with open("/tmp/email_body.txt", "w") as f:
-        f.write(body)
+        # Trailing newline is required: the daily-weights.yml heredoc closes with
+        # a bare `EMAILEOF` line, and `cat`-ing a file without a final newline
+        # concatenates the delimiter onto the last body line, so GitHub Actions
+        # fails the step with "Matching delimiter not found".
+        f.write(body + "\n")
     logger.info("Email content written — %s", subject)
 
 

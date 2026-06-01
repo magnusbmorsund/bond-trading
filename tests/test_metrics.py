@@ -72,11 +72,11 @@ def test_calmar_positive_for_profitable_strategy(flat_returns, nav_monotone):
     assert c > 0
 
 
-def test_calmar_nan_for_zero_drawdown(flat_returns, nav_monotone):
-    # monotone nav has 0 drawdown → calmar should be nan or very large
+def test_calmar_inf_for_zero_drawdown(flat_returns, nav_monotone):
+    # A monotone-rising nav has exactly 0 drawdown → calmar is +infinity
+    # (return / 0). The sign must stay positive for a profitable strategy.
     c = calmar(nav_monotone, flat_returns)
-    # max_drawdown is ~0 but not exactly 0 due to floating point; calmar should be large positive
-    assert c > 0
+    assert np.isinf(c) and c > 0
 
 
 # ── drawdown_series ───────────────────────────────────────────────────────────
