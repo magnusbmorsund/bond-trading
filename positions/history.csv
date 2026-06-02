@@ -1344,3 +1344,15 @@ date,strategy,etf,weight_pct
 2026-06-01,sector2f,PDBC,22.87
 2026-06-01,sector2f,SIL,8.44
 2026-06-01,sector2f,SMH,12.62
+2026-06-02,sector2e,ARKK,15.95
+2026-06-02,sector2e,ITA,20.48
+2026-06-02,sector2e,OIH,19.47
+2026-06-02,sector2e,PDBC,22.72
+2026-06-02,sector2e,SIL,8.5
+2026-06-02,sector2e,SMH,12.88
+2026-06-02,sector2f,ARKK,15.95
+2026-06-02,sector2f,ITA,20.48
+2026-06-02,sector2f,OIH,19.47
+2026-06-02,sector2f,PDBC,22.72
+2026-06-02,sector2f,SIL,8.5
+2026-06-02,sector2f,SMH,12.88
