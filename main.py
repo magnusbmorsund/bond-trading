@@ -342,6 +342,50 @@ def _print_ucits_translation(eff_w, stop_df):
     print(f"    3. Stop trails from price at order placement — let it run, don't reset weekly")
 
 
+def cmd_stop_report():
+    """Report intended-stop vs fill slippage from positions/stop_events.csv.
+
+    To record a real fill: open positions/stop_events.csv, fill the `actual_fill`
+    column for any triggered row from your Nordnet trade confirmation, then re-run
+    this command — it computes actual slippage and aggregates it.
+    """
+    import os
+    from analysis import stop_tracker as st
+    path = os.path.join(os.path.dirname(__file__), "positions", "stop_events.csv")
+
+    # Backfill actual_slip_bps for any rows where the user entered an actual_fill.
+    if os.path.exists(path):
+        import csv
+        rows = list(csv.DictReader(open(path)))
+        changed = False
+        for r in rows:
+            af = st._to_float(r.get("actual_fill"))
+            sp = st._to_float(r.get("stop_price"))
+            if af is not None and sp and not r.get("actual_slip_bps"):
+                r["actual_slip_bps"] = st.slip_bps(sp, af); changed = True
+        if changed:
+            with open(path, "w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=st.EVENT_FIELDS); w.writeheader()
+                w.writerows({k: r.get(k, "") for k in st.EVENT_FIELDS} for r in rows)
+
+    rep = st.report(path)
+    print("\n=== Stop-fill slippage report ===")
+    if rep.get("events", 0) == 0:
+        print("  No stop events logged yet (positions/stop_events.csv).")
+        print("  Events accrue automatically as the daily run detects stop triggers.")
+        return
+    print(f"  Triggers logged       : {rep['events']}")
+    print(f"  Gap-open triggers     : {rep['gap_opens']}  ({rep['gap_rate_pct']}%)")
+    print(f"  Est. slippage (bps)   : mean {rep['est_slip_bps_mean']}  median {rep['est_slip_bps_median']}")
+    print(f"  Actual fills logged   : {rep['actual_logged']}")
+    if rep["actual_logged"]:
+        print(f"  ACTUAL slippage (bps) : mean {rep['actual_slip_bps_mean']}  median {rep['actual_slip_bps_median']}")
+    else:
+        print("  ACTUAL slippage       : (enter `actual_fill` in stop_events.csv to measure)")
+    print("\n  Feed the measured slippage back into configs/sector_v2h.py "
+          "(STOP_SLIP_BPS / GAP_FRAC / GAP_EXTRA) to make the backtest match reality.")
+
+
 def cmd_optimize(strategy: str, n_trials: int = 300, stop_freq: str = "daily"):
     from optimize import run_optimization
     flags = {
@@ -532,6 +576,7 @@ def main():
     sub.add_parser("v2c-long",       help="V2c+V2d extended history (2002–present) → v2c_extended.png")
     sub.add_parser("v2d-v2e",        help="V2d vs V2e supercycle comparison → v2d_v2e.png")
     sub.add_parser("v2c-v2d-v2e",   help="V2c vs V2d vs V2e three-way comparison → v2c_v2d_v2e.png")
+    sub.add_parser("stop-report",    help="Slippage report: intended stop vs (est/actual) fill")
 
     args = parser.parse_args()
     if args.cmd is None:
@@ -552,6 +597,7 @@ def main():
     elif args.cmd == "v2c-long":       cmd_v2c_long()
     elif args.cmd == "v2d-v2e":        cmd_v2d_v2e()
     elif args.cmd == "v2c-v2d-v2e":   cmd_v2c_v2d_v2e()
+    elif args.cmd == "stop-report":    cmd_stop_report()
     else:
         parser.print_help()
 
