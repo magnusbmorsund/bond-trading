@@ -25,61 +25,108 @@ def _apply_adaptive_trailing_stops(
     prices: pd.DataFrame,
     mom12m_daily: pd.DataFrame,
     config,
-) -> pd.DataFrame:
-    """Daily rolling trailing stops — freed weight → SHY."""
+    daily_ret: pd.DataFrame | None = None,
+):
+    """Apply exits to the daily weight matrix; free weight → SHY.
+
+    Returns (adjusted_weights, adjusted_returns). For the legacy default
+    (EXIT_MODE='pct_trail', STOP_FILL='close', STOP_PERSIST=False) the returned
+    weights/returns are byte-identical to the previous behaviour — the trigger
+    is lagged one day, the position is masked, and returns are unchanged.
+
+    Config knobs (all default to the legacy behaviour):
+      EXIT_MODE       'pct_trail' | 'fixed_trail' | 'ma_break'
+      STOP_FILL       'close' (book the trigger day at its close) | 'stop'
+                      (book it at the stop LEVEL L = peak*(1-stop_pct) — the
+                      realistic resting-stop fill for a liquid ETF)
+      STOP_PERSIST    False = re-enter as soon as price recovers (legacy daily
+                      re-eval); True = stay in cash until the next rebalance
+      STOP_FIXED_PCT  trailing distance for 'fixed_trail'
+      STOP_SLIP_BPS   slippage haircut on a 'stop' fill (bps)
+      GAP_FRAC/GAP_EXTRA  deterministic fat-tail gap model: every
+                      round(1/GAP_FRAC)-th trigger fills GAP_EXTRA *worse* than L
+    """
     stop_etfs = [
         e for e in config.TRAILING_STOP_ETFS
         if e in prices.columns and e in daily_w.columns
     ]
+    if daily_ret is None:
+        daily_ret = prices.pct_change().reindex(daily_w.index)
+    ret_adj = daily_ret.reindex(columns=daily_w.columns).copy() \
+        if set(daily_w.columns) - set(daily_ret.columns) else daily_ret.copy()
     if not stop_etfs:
-        return daily_w
+        return daily_w, ret_adj
 
-    w = daily_w.copy()
-    # EXIT_MODE selects the exit rule. "pct_trail" (default) = adaptive %-off-peak
-    # trailing stop. "ma_break" = exit when close falls below its own moving
-    # average (slow trend break) — empirically far better risk-adjusted on
-    # volatile thematic/supercycle ETFs, where tight % trails whipsaw.
+    w         = daily_w.copy()
     exit_mode = getattr(config, "EXIT_MODE", "pct_trail")
+    fill      = getattr(config, "STOP_FILL", "close")
+    persist   = getattr(config, "STOP_PERSIST", False)
+    slip      = getattr(config, "STOP_SLIP_BPS", 0.0)
+    gap_frac  = getattr(config, "GAP_FRAC", 0.0)
+    gap_extra = getattr(config, "GAP_EXTRA", 0.0)
+    gap_every = max(1, int(round(1.0 / gap_frac))) if gap_frac > 0 else 0
+    cash      = config.CASH_ETF
 
     for etf in stop_etfs:
-        prices_etf   = prices[etf].reindex(w.index).ffill()
+        prices_etf = prices[etf].reindex(w.index).ffill()
 
         if exit_mode == "ma_break":
-            ma = prices_etf.rolling(
-                getattr(config, "MA_EXIT_WINDOW", 200), min_periods=1
-            ).mean().shift(1)
-            triggered = (prices_etf < ma).fillna(False)
+            ref     = prices_etf.rolling(getattr(config, "MA_EXIT_WINDOW", 200),
+                                         min_periods=1).mean().shift(1)
+            breach  = (prices_etf < ref).fillna(False)
+            level   = None
         else:
-            rolling_peak = prices_etf.rolling(
-                config.TRAILING_STOP_WINDOW, min_periods=1
-            ).max().shift(1)
-            m12 = mom12m_daily[etf].reindex(w.index).ffill().fillna(0.0) \
-                  if etf in mom12m_daily.columns \
-                  else pd.Series(0.0, index=w.index)
-            stop_pct  = _adaptive_stop_pct(m12, config)
-            triggered = (prices_etf < rolling_peak * (1.0 - stop_pct)).fillna(False)
+            peak = prices_etf.rolling(config.TRAILING_STOP_WINDOW,
+                                      min_periods=1).max().shift(1)
+            if exit_mode == "fixed_trail":
+                sp = pd.Series(getattr(config, "STOP_FIXED_PCT", 0.10), index=w.index)
+            else:
+                m12 = mom12m_daily[etf].reindex(w.index).ffill().fillna(0.0) \
+                      if etf in mom12m_daily.columns else pd.Series(0.0, index=w.index)
+                sp = _adaptive_stop_pct(m12, config)
+            level  = peak * (1.0 - sp)
+            breach = (prices_etf < level).fillna(False)
 
-        # Lag the trigger by one day: OBSERVED at day-T close, ACTED ON from T+1.
-        # Without this shift the backtest dodges day-T's loss — look-ahead bias.
-        triggered = triggered.shift(1).fillna(False).astype(bool)
+        if not persist:
+            # Legacy: lag the trigger, mask the weight, leave returns untouched.
+            triggered = breach.shift(1).fillna(False).astype(bool)
+            freed     = w[etf].where(triggered, 0.0)
+            w[etf]    = w[etf].where(~triggered, 0.0)
+            if cash in w.columns:
+                w[cash] = w[cash] + freed
+            continue
 
-        freed  = w[etf].where(triggered, 0.0)
-        w[etf] = w[etf].where(~triggered, 0.0)
-        if "SHY" in w.columns:
-            w["SHY"] = w["SHY"] + freed
+        # Persistent: hold INTO the breach day (no look-ahead), book the exit at
+        # the chosen fill, then sit in cash until the target weight next changes.
+        base   = w[etf].values
+        pe_v   = prices_etf.values
+        prev_v = prices_etf.shift(1).values
+        lvl_v  = level.values if level is not None else None
+        br_v   = breach.values
+        rebal  = w[etf].ne(w[etf].shift(1)).fillna(True).values
+        bw     = base.copy()
+        rr     = ret_adj[etf].values.copy()
+        stopped = False
+        ntrig   = 0
+        for t in range(len(w.index)):
+            if rebal[t]:
+                stopped = False
+            if stopped:
+                bw[t] = 0.0
+            elif br_v[t] and base[t] > 0 and prev_v[t] and prev_v[t] > 0:
+                if fill == "stop" and lvl_v is not None:
+                    ntrig += 1
+                    fillpx = lvl_v[t] * (1.0 - slip / 1e4)
+                    if gap_every and (ntrig % gap_every == 0):
+                        fillpx = lvl_v[t] * (1.0 - gap_extra)
+                    rr[t] = fillpx / prev_v[t] - 1.0
+                stopped = True
+        w[etf]       = bw
+        ret_adj[etf] = pd.Series(rr, index=w.index).fillna(0.0).values
+        if cash in w.columns:
+            w[cash] = w[cash] + (base - bw)
 
-        n = triggered.sum()
-        if n:
-            detail = (f"avg_stop={stop_pct[triggered].mean() * 100:.1f}%"
-                      if exit_mode != "ma_break"
-                      else f"MA{getattr(config, 'MA_EXIT_WINDOW', 200)}-break")
-            logger.info(
-                "Exit (%s): %s triggered %d days (first=%s last=%s %s)",
-                exit_mode, etf, n, triggered[triggered].index[0].date(),
-                triggered[triggered].index[-1].date(), detail,
-            )
-
-    return w
+    return w, ret_adj
 
 
 def effective_weights(
@@ -207,9 +254,11 @@ def run(prices: pd.DataFrame, config, sig_mod, port_mod) -> dict:
     daily_w_base  = weights.reindex(daily_ret.index).ffill().shift(1)
     mom12_trimmed = mom12_daily.reindex(daily_ret.index)
 
-    daily_w = _apply_adaptive_trailing_stops(daily_w_base, etf_prices, mom12_trimmed, config)
+    daily_w, daily_ret_eff = _apply_adaptive_trailing_stops(
+        daily_w_base, etf_prices, mom12_trimmed, config, daily_ret=daily_ret
+    )
 
-    daily_ret_no_cash = daily_ret.copy()
+    daily_ret_no_cash = daily_ret_eff.copy()
     if config.CASH_ETF in daily_ret_no_cash.columns:
         daily_ret_no_cash[config.CASH_ETF] = 0.0
 
