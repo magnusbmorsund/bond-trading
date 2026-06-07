@@ -133,13 +133,16 @@ def apply_trailing_stops(
 
     stop_prices  = prices[stop_cols].reindex(daily_w.index).ffill()
     rolling_peak = stop_prices.rolling(stop_window, min_periods=1).max().shift(1)
-    stop_trigger = stop_prices < rolling_peak * (1.0 - stop_pct)
+    # Lag the trigger by one day: observed at day-T close, acted on from T+1.
+    # Without the shift the position is zeroed on day T and dodges day-T's loss
+    # (look-ahead bias). Hold through the trigger day, flat from T+1.
+    stop_trigger = (stop_prices < rolling_peak * (1.0 - stop_pct)).shift(1)
 
     w = daily_w.copy()
     for etf in stop_cols:
         if etf not in w.columns:
             continue
-        triggered = stop_trigger[etf].reindex(w.index).fillna(False)
+        triggered = stop_trigger[etf].reindex(w.index).fillna(False).astype(bool)
         freed      = w[etf].where(triggered, 0.0)
         w[etf]     = w[etf].where(~triggered, 0.0)
         if "SHY" in w.columns:

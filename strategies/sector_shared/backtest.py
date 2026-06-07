@@ -47,7 +47,12 @@ def _apply_adaptive_trailing_stops(
               else pd.Series(0.0, index=w.index)
 
         stop_pct  = _adaptive_stop_pct(m12, config)
+        # Lag the trigger by one day: the stop is OBSERVED at day-T's close but can
+        # only be ACTED ON from T+1. Without this shift the backtest zeroes the
+        # weight on day T and dodges day-T's loss — look-ahead bias that inflated
+        # CAGR/Sharpe massively. Hold through the trigger day, flat from T+1.
         triggered = (prices_etf < rolling_peak * (1.0 - stop_pct)).fillna(False)
+        triggered = triggered.shift(1).fillna(False).astype(bool)
 
         freed  = w[etf].where(triggered, 0.0)
         w[etf] = w[etf].where(~triggered, 0.0)

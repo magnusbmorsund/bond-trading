@@ -62,9 +62,17 @@ def test_sector2e_smoke():
     sr      = sharpe(ret_2005)
     mdd     = max_drawdown(nav_2005)
 
-    assert ann_ret > 0.30, f"CAGR {ann_ret:.1%} < 30% floor (target >42%)"
-    assert sr      > 2.50, f"Sharpe {sr:.2f} < 2.5 floor (target >3.2)"
-    assert mdd     > -0.20, f"Max DD {mdd:.1%} worse than -20% floor (target better than -10%)"
+    # NOTE: the previous performance targets (CAGR >42%, Sharpe >3.2, DD better
+    # than -10%) were artifacts of a look-ahead bug in the trailing-stop exit
+    # (fixed in strategies/sector_shared/backtest.py — the stop trigger is now
+    # lagged one day). On the corrected engine the inherited best_params produce
+    # low-single-digit CAGR. These structural/sanity checks stay green; a real
+    # performance floor will be reinstated after honest re-optimization.
+    import numpy as np
+    assert np.isfinite(ann_ret), f"CAGR not finite: {ann_ret}"
+    assert np.isfinite(sr),      f"Sharpe not finite: {sr}"
+    assert -1.0 < mdd <= 0.0,    f"Max DD out of sane range: {mdd:.1%}"
+    assert (nav > 0).all(),      "NAV went non-positive"
 
 
 def test_sector2e_shared_modules_imported():
