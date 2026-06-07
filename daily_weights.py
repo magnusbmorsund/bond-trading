@@ -126,13 +126,23 @@ def _compute_weights(version: str):
             raw["stop_pct"]    = (raw["stop_pct"] * 100).round(1)
             raw["stop_price"]  = raw["stop_price"].round(2)
             raw["pct_to_stop"] = (raw["pct_to_stop"] * 100).round(1)
+            # Surface the close prices the stop is measured against: the 86-day
+            # peak close and the latest close. Stop price = Peak × (1 − Stop%);
+            # Margin% = (Close − Stop price) / Close. All close-based.
+            raw["peak_price"]  = raw["peak_price"].round(2)
+            raw["today"]       = raw["today"].round(2)
             raw = raw.rename(columns={
                 "weight_pct": "Weight%",
                 "m12":        "12M ret%",
+                "peak_price": "Peak close",
+                "today":      "Close",
                 "stop_pct":   "Stop%",
                 "stop_price": "Stop price",
                 "pct_to_stop":"Margin%",
-            }).drop(columns=["peak_price", "today"], errors="ignore")
+            })
+            # Order so the stop reads left-to-right: where it is → the trigger.
+            raw = raw[["Weight%", "12M ret%", "Peak close", "Close",
+                       "Stop%", "Stop price", "Margin%"]]
             stop_df = raw.reset_index()
 
     return eff_w, as_of, stop_df
