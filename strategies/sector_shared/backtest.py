@@ -35,23 +35,32 @@ def _apply_adaptive_trailing_stops(
         return daily_w
 
     w = daily_w.copy()
+    # EXIT_MODE selects the exit rule. "pct_trail" (default) = adaptive %-off-peak
+    # trailing stop. "ma_break" = exit when close falls below its own moving
+    # average (slow trend break) — empirically far better risk-adjusted on
+    # volatile thematic/supercycle ETFs, where tight % trails whipsaw.
+    exit_mode = getattr(config, "EXIT_MODE", "pct_trail")
 
     for etf in stop_etfs:
         prices_etf   = prices[etf].reindex(w.index).ffill()
-        rolling_peak = prices_etf.rolling(
-            config.TRAILING_STOP_WINDOW, min_periods=1
-        ).max().shift(1)
 
-        m12 = mom12m_daily[etf].reindex(w.index).ffill().fillna(0.0) \
-              if etf in mom12m_daily.columns \
-              else pd.Series(0.0, index=w.index)
+        if exit_mode == "ma_break":
+            ma = prices_etf.rolling(
+                getattr(config, "MA_EXIT_WINDOW", 200), min_periods=1
+            ).mean().shift(1)
+            triggered = (prices_etf < ma).fillna(False)
+        else:
+            rolling_peak = prices_etf.rolling(
+                config.TRAILING_STOP_WINDOW, min_periods=1
+            ).max().shift(1)
+            m12 = mom12m_daily[etf].reindex(w.index).ffill().fillna(0.0) \
+                  if etf in mom12m_daily.columns \
+                  else pd.Series(0.0, index=w.index)
+            stop_pct  = _adaptive_stop_pct(m12, config)
+            triggered = (prices_etf < rolling_peak * (1.0 - stop_pct)).fillna(False)
 
-        stop_pct  = _adaptive_stop_pct(m12, config)
-        # Lag the trigger by one day: the stop is OBSERVED at day-T's close but can
-        # only be ACTED ON from T+1. Without this shift the backtest zeroes the
-        # weight on day T and dodges day-T's loss — look-ahead bias that inflated
-        # CAGR/Sharpe massively. Hold through the trigger day, flat from T+1.
-        triggered = (prices_etf < rolling_peak * (1.0 - stop_pct)).fillna(False)
+        # Lag the trigger by one day: OBSERVED at day-T close, ACTED ON from T+1.
+        # Without this shift the backtest dodges day-T's loss — look-ahead bias.
         triggered = triggered.shift(1).fillna(False).astype(bool)
 
         freed  = w[etf].where(triggered, 0.0)
@@ -61,11 +70,13 @@ def _apply_adaptive_trailing_stops(
 
         n = triggered.sum()
         if n:
+            detail = (f"avg_stop={stop_pct[triggered].mean() * 100:.1f}%"
+                      if exit_mode != "ma_break"
+                      else f"MA{getattr(config, 'MA_EXIT_WINDOW', 200)}-break")
             logger.info(
-                "Adaptive stop: %s triggered %d days (first=%s last=%s avg_stop=%.1f%%)",
-                etf, n, triggered[triggered].index[0].date(),
-                triggered[triggered].index[-1].date(),
-                stop_pct[triggered].mean() * 100,
+                "Exit (%s): %s triggered %d days (first=%s last=%s %s)",
+                exit_mode, etf, n, triggered[triggered].index[0].date(),
+                triggered[triggered].index[-1].date(), detail,
             )
 
     return w
