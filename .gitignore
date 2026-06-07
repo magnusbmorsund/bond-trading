@@ -24,3 +24,9 @@ logs/
 
 # Secrets
 .env
+
+# Claude Code local config
+.claude/
+
+# Supabase CLI scratch
+supabase/.temp/
