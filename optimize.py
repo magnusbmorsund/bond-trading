@@ -49,6 +49,7 @@ BEST_PARAMS_SECTOR2C_PATH         = os.path.join(_BASE, "best_params_sector2c.js
 BEST_PARAMS_SECTOR2D_PATH         = os.path.join(_BASE, "best_params_sector2d.json")
 BEST_PARAMS_SECTOR2E_PATH         = os.path.join(_BASE, "best_params_sector2e.json")
 BEST_PARAMS_SECTOR2F_PATH         = os.path.join(_BASE, "best_params_sector2f.json")
+BEST_PARAMS_SECTOR2G_PATH         = os.path.join(_BASE, "best_params_sector2g.json")
 
 _RETURN_TARGET = 0.10
 
@@ -226,7 +227,7 @@ def run_optimization(
     sector: bool = False,
     sector2: bool = False, sector2b: bool = False, sector2c: bool = False,
     sector2d: bool = False, sector2e: bool = False,
-    sector2f: bool = False,
+    sector2f: bool = False, sector2g: bool = False,
     stop_freq: str = "daily",
 ):
     # ── Sector V2 (with stop_freq variants) ───────────────────────────────
@@ -288,6 +289,13 @@ def run_optimization(
         from data.pipelines.sector_v2f     import load_all as _load_prices
         from strategies.sector_v2f.backtest import run as _run
         return _optimize_sector(cfg_mod, _load_prices, _run, "SECTOR2F", BEST_PARAMS_SECTOR2F_PATH, n_trials)
+
+    # ── Sector V2g (honest rebuild: trend-break exit + concentration) ─────
+    elif sector2g:
+        import configs.sector_v2g as cfg_mod
+        from data.pipelines.sector_v2g     import load_all as _load_prices
+        from strategies.sector_v2g.backtest import run as _run
+        return _optimize_sector(cfg_mod, _load_prices, _run, "SECTOR2G", BEST_PARAMS_SECTOR2G_PATH, n_trials)
 
     # ── Sector V1 ─────────────────────────────────────────────────────────
     elif sector:
@@ -409,6 +417,7 @@ if __name__ == "__main__":
     parser.add_argument("--sector2d",  action="store_true")
     parser.add_argument("--sector2e",  action="store_true")
     parser.add_argument("--sector2f",  action="store_true")
+    parser.add_argument("--sector2g",  action="store_true")
     parser.add_argument("--stop-freq", default="daily", choices=["daily", "weekly", "monthly"],
                         dest="stop_freq")
     args = parser.parse_args()
@@ -416,6 +425,6 @@ if __name__ == "__main__":
         n_trials=args.trials, v2=args.v2, v3=args.v3,
         sector=args.sector, sector2=args.sector2, sector2b=args.sector2b,
         sector2c=args.sector2c, sector2d=args.sector2d, sector2e=args.sector2e,
-        sector2f=args.sector2f,
+        sector2f=args.sector2f, sector2g=args.sector2g,
         stop_freq=args.stop_freq,
     )
