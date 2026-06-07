@@ -29,10 +29,10 @@ jobs:
           FRED_API_KEY:              ${{ secrets.FRED_API_KEY }}
           SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          # Production strategies: sector2e (US best) + sector2f (UCITS-tradeable
-          # on Nordnet). Set explicitly rather than relying on daily_weights.py's
-          # v1,v2,v3 default, which reports the legacy bond strategies.
-          DAILY_STRATEGIES:          sector2e,sector2f
+          # Production strategy: sector2f — the UCITS-tradeable variant that can
+          # actually be executed on Nordnet (V2e minus XBI/IGV). Reported alone
+          # so the daily email shows only the positions you can act on.
+          DAILY_STRATEGIES:          sector2f
         run: python daily_weights.py
 
       - name: Rotate old positions files
