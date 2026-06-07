@@ -25,8 +25,9 @@ logs/
 # Secrets
 .env
 
-# Claude Code local config
-.claude/
+# Claude Code local config (but DO version-control project skills)
+.claude/*
+!.claude/skills/
 
 # Supabase CLI scratch
 supabase/.temp/
