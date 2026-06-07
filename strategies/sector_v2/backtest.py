@@ -72,7 +72,10 @@ def _apply_adaptive_trailing_stops(
             m12 = pd.Series(0.0, index=w.index)
 
         stop_pct  = _adaptive_stop_pct(m12)
+        # Lag the trigger one day (observed at T close, acted on from T+1) to
+        # remove look-ahead. See strategies/sector_shared/backtest.py.
         triggered = (prices_etf < rolling_peak * (1.0 - stop_pct)).fillna(False)
+        triggered = triggered.shift(1).fillna(False).astype(bool)
 
         freed  = w[etf].where(triggered, 0.0)
         w[etf] = w[etf].where(~triggered, 0.0)
@@ -150,9 +153,11 @@ def _apply_monthly_fixed_stops(
 
             fixed_stop_price = peak * (1.0 - stop_pct)
 
-            # Check daily within this month — once triggered, stay out rest of month
+            # Check daily within this month — once triggered, stay out rest of month.
+            # Lag by one day (.shift) so the breach observed at T's close is acted on
+            # from T+1, not T itself — removes look-ahead on the trigger day.
             prices_month = prices_etf[month_dates]
-            below        = prices_month < fixed_stop_price
+            below        = (prices_month < fixed_stop_price).shift(1).fillna(False).astype(bool)
             if below.any():
                 trigger_day = below[below].index[0]
                 stopped[trigger_day:next_reb] = True
