@@ -243,6 +243,12 @@ def main():
     for f in _ohlc_cols:
         df[f] = df["etf"].map(lambda t: ohlc.get(t, {}).get(f))
 
+    # --- Stop-fill tracking: advance the live stop book + log any triggers ---
+    # Measures intended-stop vs (estimated/actual) fill so we can validate the
+    # backtest's fill-at-stop assumption against reality. Per-strategy stop %
+    # comes from each strategy's Stops table ("Stop%").
+    _update_stop_tracking(out_dir, today, stop_rows, ohlc)
+
     # --- Excel workbook with Orders + Portfolio sheets ---
     _ucits_cols = ["UCITS Name", "UCITS Ticker", "ISIN", "Exchange", "Match"]
     _px_cols    = ["Price Date", *_ohlc_cols]
@@ -282,6 +288,43 @@ def main():
     logger.info("Updated %s", history_path)
 
     _write_email_files(df, today)
+
+
+def _update_stop_tracking(out_dir: str, today: str, stop_rows: list, ohlc: dict) -> None:
+    """Advance the per-strategy stop book and append any triggered-stop events.
+
+    Uses each strategy's Stops table (etf + 'Stop%') and the day's OHLC. The book
+    (positions/stop_book.json) trails each stop like a Nordnet glidende stop; the
+    event log (positions/stop_events.csv) records intended stop vs estimated fill,
+    with a blank 'actual_fill' column for you to enter the real Nordnet fill.
+    """
+    if not stop_rows:
+        return
+    try:
+        from analysis import stop_tracker as st
+    except Exception as e:  # never let tracking break the daily run
+        logger.warning("stop tracker unavailable: %s", e)
+        return
+
+    book_path   = os.path.join(out_dir, "stop_book.json")
+    events_path = os.path.join(out_dir, "stop_events.csv")
+    book = st.load_book(book_path)
+    all_events = []
+    for sdf in stop_rows:
+        if sdf is None or sdf.empty or "Stop%" not in sdf.columns:
+            continue
+        strategy = sdf["strategy"].iloc[0]
+        held = {r["etf"]: float(r["Stop%"]) / 100.0 for _, r in sdf.iterrows()}
+        book, events = st.update_book(book, strategy, today, held, ohlc)
+        all_events.extend(events)
+    st.save_book(book, book_path)
+    st.append_events(all_events, events_path)
+    if all_events:
+        logger.info("Stop tracker: %d stop(s) triggered today → %s", len(all_events), events_path)
+        for e in all_events:
+            logger.info("  STOP %s %s: stop=%.2f est_fill=%.2f (%s, ~%s bps)",
+                        e["strategy"], e["etf"], e["stop_price"], e["est_fill"],
+                        e["breach_type"], e["est_slip_bps"])
 
 
 def _write_email_files(df: pd.DataFrame, today: str) -> None:
