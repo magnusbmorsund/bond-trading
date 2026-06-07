@@ -15,6 +15,22 @@ from datetime import date
 import pandas as pd
 from strategies.backtest_core import DEFAULT_COST_MODEL
 from main import REGISTRY
+from configs.ucits_mapping import UCITS_MAP
+
+
+def _ucits_fields(us_etf: str) -> dict:
+    """UCITS listing details for a US ticker, so the Excel says exactly what to
+    buy on Nordnet. Falls back to blanks/flag when no acceptable equivalent."""
+    info = UCITS_MAP.get(us_etf)
+    if info is None:
+        return {"UCITS Name": "— unknown, check manually —", "UCITS Ticker": "",
+                "ISIN": "", "Exchange": "", "Match": ""}
+    if info["status"] == "none":
+        return {"UCITS Name": info["name"], "UCITS Ticker": "",
+                "ISIN": "", "Exchange": "", "Match": "none"}
+    return {"UCITS Name": info["name"], "UCITS Ticker": info["ticker"] or "",
+            "ISIN": info["isin"] or "", "Exchange": info["exchange"] or "",
+            "Match": info["status"]}
 
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s")
@@ -149,6 +165,7 @@ def main():
                     "date": today,
                     "strategy": version,
                     "etf": etf,
+                    **_ucits_fields(etf),
                     "prev_weight_pct": previous,
                     "target_weight_pct": current,
                     "delta_pct": delta,
@@ -174,9 +191,13 @@ def main():
     df = pd.DataFrame(rows)
 
     # --- Excel workbook with Orders + Portfolio sheets ---
-    orders = df[df["action"] != "HOLD"].copy()
+    _ucits_cols = ["UCITS Name", "UCITS Ticker", "ISIN", "Exchange", "Match"]
+    orders = df[df["action"] != "HOLD"][
+        ["date", "strategy", "etf", *_ucits_cols,
+         "prev_weight_pct", "target_weight_pct", "delta_pct", "action", "est_cost_bps"]
+    ].copy()
     portfolio = df[df["target_weight_pct"] > 0][
-        ["date", "strategy", "etf", "target_weight_pct"]
+        ["date", "strategy", "etf", *_ucits_cols, "target_weight_pct"]
     ].copy()
 
     xlsx_path = os.path.join(out_dir, f"{today}.xlsx")
@@ -194,8 +215,11 @@ def main():
     logger.info("Wrote %s (%d positions, %d trades)", xlsx_path, len(portfolio), len(orders))
 
     # --- Update history (for next day's comparison) ---
+    # Keep history lean — only the columns the prev-day delta needs. UCITS detail
+    # lives in the Excel, not here.
     history_path = os.path.join(out_dir, "history.csv")
-    hist_rows = portfolio.rename(columns={"target_weight_pct": "weight_pct"})
+    hist_rows = portfolio[["date", "strategy", "etf", "target_weight_pct"]].rename(
+        columns={"target_weight_pct": "weight_pct"})
     if os.path.exists(history_path):
         existing = pd.read_csv(history_path)
         existing = existing[existing["date"] != today]
