@@ -32,6 +32,42 @@ def _ucits_fields(us_etf: str) -> dict:
             "ISIN": info["isin"] or "", "Exchange": info["exchange"] or "",
             "Match": info["status"]}
 
+
+def _fetch_latest_ohlc(tickers) -> tuple[dict, str]:
+    """Latest-day O/H/L/C for the report tickers, fetched fresh from yfinance.
+
+    Supabase stores only `close`, so OHLC is not available there — we pull the
+    last few daily bars from yfinance for just the handful of tickers in the
+    report. Prices are US-listed (USD), auto-adjusted to match the close the
+    strategy uses. Returns ({ticker: {Open,High,Low,Close}}, price_date); any
+    failure yields ({}, "") so the email is never blocked by a data hiccup.
+    """
+    tickers = [t for t in dict.fromkeys(tickers)]  # de-dupe, preserve order
+    try:
+        import yfinance as yf
+        data = yf.download(tickers, period="7d", auto_adjust=True, progress=False)
+        if data.empty:
+            logger.warning("OHLC fetch returned no rows — leaving OHLC blank")
+            return {}, ""
+        last       = data.iloc[-1]
+        price_date = data.index[-1].date().isoformat()
+        multi      = isinstance(data.columns, pd.MultiIndex)
+        out = {}
+        for t in tickers:
+            row = {}
+            for f in ("Open", "High", "Low", "Close"):
+                key = (f, t) if multi else f
+                try:
+                    v = last[key]
+                    row[f] = round(float(v), 2) if pd.notna(v) else None
+                except (KeyError, TypeError):
+                    row[f] = None
+            out[t] = row
+        return out, price_date
+    except Exception as exc:
+        logger.warning("Latest-day OHLC fetch failed (%s) — leaving OHLC blank", exc)
+        return {}, ""
+
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s")
 logger = logging.getLogger(__name__)
@@ -190,14 +226,22 @@ def main():
 
     df = pd.DataFrame(rows)
 
+    # --- Latest-day OHLC (US-listed, USD) for every ticker in the report ---
+    _ohlc_cols = ["Open", "High", "Low", "Close"]
+    ohlc, price_date = _fetch_latest_ohlc(df["etf"].unique())
+    df["Price Date"] = price_date
+    for f in _ohlc_cols:
+        df[f] = df["etf"].map(lambda t: ohlc.get(t, {}).get(f))
+
     # --- Excel workbook with Orders + Portfolio sheets ---
     _ucits_cols = ["UCITS Name", "UCITS Ticker", "ISIN", "Exchange", "Match"]
+    _px_cols    = ["Price Date", *_ohlc_cols]
     orders = df[df["action"] != "HOLD"][
-        ["date", "strategy", "etf", *_ucits_cols,
+        ["date", "strategy", "etf", *_ucits_cols, *_px_cols,
          "prev_weight_pct", "target_weight_pct", "delta_pct", "action", "est_cost_bps"]
     ].copy()
     portfolio = df[df["target_weight_pct"] > 0][
-        ["date", "strategy", "etf", *_ucits_cols, "target_weight_pct"]
+        ["date", "strategy", "etf", *_ucits_cols, *_px_cols, "target_weight_pct"]
     ].copy()
 
     xlsx_path = os.path.join(out_dir, f"{today}.xlsx")
