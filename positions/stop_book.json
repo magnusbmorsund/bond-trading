@@ -1,14 +1,9 @@
 {
   "sector2f": {
-    "ARKK": {
-      "peak": 77.5,
-      "placed_date": "2026-06-08",
-      "stop_pct": 0.129
-    },
     "ITA": {
       "peak": 231.84,
       "placed_date": "2026-06-08",
-      "stop_pct": 0.114
+      "stop_pct": 0.115
     },
     "OIH": {
       "peak": 432.39,
@@ -18,12 +13,17 @@
     "PDBC": {
       "peak": 17.67,
       "placed_date": "2026-06-08",
-      "stop_pct": 0.14400000000000002
+      "stop_pct": 0.138
     },
     "SMH": {
       "peak": 606.2,
       "placed_date": "2026-06-08",
       "stop_pct": 0.22
+    },
+    "XLE": {
+      "peak": 58.91,
+      "placed_date": "2026-06-10",
+      "stop_pct": 0.14400000000000002
     }
   }
 }
