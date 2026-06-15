@@ -1,27 +1,27 @@
 {
   "sector2f": {
     "ARKK": {
-      "peak": 76.18,
+      "peak": 80.12,
       "placed_date": "2026-06-12",
       "stop_pct": 0.1
     },
     "ITA": {
-      "peak": 237.51,
+      "peak": 239.13,
       "placed_date": "2026-06-08",
-      "stop_pct": 0.125
+      "stop_pct": 0.12
     },
     "OIH": {
       "peak": 432.39,
       "placed_date": "2026-06-08",
-      "stop_pct": 0.21899999999999997
+      "stop_pct": 0.21600000000000003
     },
     "REMX": {
-      "peak": 96.34,
+      "peak": 99.0,
       "placed_date": "2026-06-12",
       "stop_pct": 0.22
     },
     "SMH": {
-      "peak": 624.38,
+      "peak": 648.0,
       "placed_date": "2026-06-08",
       "stop_pct": 0.22
     }
