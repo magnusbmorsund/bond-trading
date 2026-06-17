@@ -1,29 +1,29 @@
 {
   "sector2f": {
-    "ARKK": {
-      "peak": 80.48,
-      "placed_date": "2026-06-12",
-      "stop_pct": 0.11699999999999999
-    },
     "ITA": {
-      "peak": 240.66,
+      "peak": 245.4,
       "placed_date": "2026-06-08",
-      "stop_pct": 0.126
+      "stop_pct": 0.127
     },
     "OIH": {
       "peak": 432.39,
       "placed_date": "2026-06-08",
-      "stop_pct": 0.207
+      "stop_pct": 0.19399999999999998
     },
-    "REMX": {
-      "peak": 99.0,
-      "placed_date": "2026-06-12",
+    "SIL": {
+      "peak": 91.93,
+      "placed_date": "2026-06-17",
       "stop_pct": 0.22
     },
     "SMH": {
       "peak": 648.31,
       "placed_date": "2026-06-08",
       "stop_pct": 0.22
+    },
+    "XLF": {
+      "peak": 54.89,
+      "placed_date": "2026-06-17",
+      "stop_pct": 0.1
     }
   }
 }
