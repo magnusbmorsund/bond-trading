@@ -1,19 +1,19 @@
 {
   "sector2f": {
-    "ARKK": {
-      "peak": 78.48,
-      "placed_date": "2026-06-23",
-      "stop_pct": 0.1
+    "IBB": {
+      "peak": 182.39,
+      "placed_date": "2026-06-24",
+      "stop_pct": 0.14400000000000002
     },
     "ITA": {
       "peak": 246.0,
       "placed_date": "2026-06-08",
-      "stop_pct": 0.125
+      "stop_pct": 0.12300000000000001
     },
     "OIH": {
       "peak": 432.39,
       "placed_date": "2026-06-08",
-      "stop_pct": 0.183
+      "stop_pct": 0.182
     },
     "REMX": {
       "peak": 93.55,
