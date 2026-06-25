@@ -51,6 +51,7 @@ BEST_PARAMS_SECTOR2E_PATH         = os.path.join(_BASE, "best_params_sector2e.js
 BEST_PARAMS_SECTOR2F_PATH         = os.path.join(_BASE, "best_params_sector2f.json")
 BEST_PARAMS_SECTOR2G_PATH         = os.path.join(_BASE, "best_params_sector2g.json")
 BEST_PARAMS_SECTOR2H_PATH         = os.path.join(_BASE, "best_params_sector2h.json")
+BEST_PARAMS_COMMODITY_PATH        = os.path.join(_BASE, "best_params_commodity.json")
 
 _RETURN_TARGET = 0.10
 
@@ -230,6 +231,7 @@ def run_optimization(
     sector2d: bool = False, sector2e: bool = False,
     sector2f: bool = False, sector2g: bool = False,
     sector2h: bool = False,
+    commodity: bool = False,
     stop_freq: str = "daily",
 ):
     # ── Sector V2 (with stop_freq variants) ───────────────────────────────
@@ -305,6 +307,18 @@ def run_optimization(
         from data.pipelines.sector_v2h     import load_all as _load_prices
         from strategies.sector_v2h.backtest import run as _run
         return _optimize_sector(cfg_mod, _load_prices, _run, "SECTOR2H", BEST_PARAMS_SECTOR2H_PATH, n_trials)
+
+    # ── Commodity Supercycle (commodity-only universe + FRED macro overlay) ─
+    elif commodity:
+        import configs.sector_commodity as cfg_mod
+        from data.pipelines.sector_commodity     import load_all as _load_prices
+        from strategies.sector_commodity.backtest import run as _run
+        # Commodities are more volatile than equity sectors → looser DD / return
+        # bars so the objective doesn't force a degenerate all-cash solution.
+        return _optimize_sector(
+            cfg_mod, _load_prices, _run, "COMMODITY", BEST_PARAMS_COMMODITY_PATH, n_trials,
+            dd_thresh=0.18, ret_thresh=0.08, wm_thresh=-0.12,
+        )
 
     # ── Sector V1 ─────────────────────────────────────────────────────────
     elif sector:
@@ -428,6 +442,7 @@ if __name__ == "__main__":
     parser.add_argument("--sector2f",  action="store_true")
     parser.add_argument("--sector2g",  action="store_true")
     parser.add_argument("--sector2h",  action="store_true")
+    parser.add_argument("--commodity", action="store_true")
     parser.add_argument("--stop-freq", default="daily", choices=["daily", "weekly", "monthly"],
                         dest="stop_freq")
     args = parser.parse_args()
@@ -436,6 +451,6 @@ if __name__ == "__main__":
         sector=args.sector, sector2=args.sector2, sector2b=args.sector2b,
         sector2c=args.sector2c, sector2d=args.sector2d, sector2e=args.sector2e,
         sector2f=args.sector2f, sector2g=args.sector2g,
-        sector2h=args.sector2h,
+        sector2h=args.sector2h, commodity=args.commodity,
         stop_freq=args.stop_freq,
     )

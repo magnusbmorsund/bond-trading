@@ -72,6 +72,7 @@ REGISTRY: dict[str, StrategySpec] = {
     "sector2f": StrategySpec("Sector V2f", "configs.sector_v2f", "data.pipelines.sector_v2f", "strategies.sector_v2f.backtest", "_sector2f"),
     "sector2g": StrategySpec("Sector V2g", "configs.sector_v2g", "data.pipelines.sector_v2g", "strategies.sector_v2g.backtest", "_sector2g"),
     "sector2h": StrategySpec("Sector V2h", "configs.sector_v2h", "data.pipelines.sector_v2h", "strategies.sector_v2h.backtest", "_sector2h"),
+    "commodity": StrategySpec("Commodity Supercycle", "configs.sector_commodity", "data.pipelines.sector_commodity", "strategies.sector_commodity.backtest", "_commodity"),
 }
 
 STRATEGY_CHOICES = list(REGISTRY.keys())
@@ -400,6 +401,7 @@ def cmd_optimize(strategy: str, n_trials: int = 300, stop_freq: str = "daily"):
         "sector2f": dict(sector2f=True),
         "sector2g": dict(sector2g=True),
         "sector2h": dict(sector2h=True),
+        "commodity": dict(commodity=True),
     }
     if strategy not in flags and strategy != "v1":
         raise SystemExit(f"optimize: unknown strategy '{strategy}'. Known: v1,{','.join(flags)}")

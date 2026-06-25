@@ -217,12 +217,17 @@ def compute_stop_pcts(
     return pd.DataFrame(rows).set_index("etf") if rows else pd.DataFrame()
 
 
-def run(prices: pd.DataFrame, config, sig_mod, port_mod) -> dict:
+def run(prices: pd.DataFrame, config, sig_mod, port_mod, macro_exposure=None) -> dict:
     """
     Run sector rotation backtest.
 
     sig_mod and port_mod are the versioned signal/portfolio modules (thin wrappers).
     config is the versioned config module (Optuna-patchable via setattr).
+
+    macro_exposure : optional daily pd.Series of an exposure multiplier (e.g. the
+        commodity macro overlay). Applied as the OUTERMOST scaler on strategy
+        returns, lagged one day to avoid look-ahead. Default None ⇒ no change
+        (byte-identical to legacy behaviour for all V2b–V2h variants).
     """
     rebal_freq = getattr(config, "REBALANCE_FREQ", "W")
     etf_prices = prices.reindex(columns=config.ETF_UNIVERSE)
@@ -271,6 +276,17 @@ def run(prices: pd.DataFrame, config, sig_mod, port_mod) -> dict:
         cash_rate, config.DD_THRESHOLD, config.DD_SCALE,
     )
     strategy_daily.name = "strategy"
+
+    # Macro exposure overlay (commodity variant): outermost exposure scaler.
+    # shift(1) so day-T return is scaled by the exposure decided from prior-day
+    # (already publication-lagged) macro state. The un-deployed fraction earns 0%
+    # (consistent with the SHY-earns-0% convention), so a CEIL of 1.0 means the
+    # overlay can only de-risk and cannot inflate returns.
+    if macro_exposure is not None:
+        m = (macro_exposure.reindex(strategy_daily.index).ffill().fillna(1.0)
+             .shift(1).fillna(1.0))
+        strategy_daily = strategy_daily * m
+        strategy_daily.name = "strategy"
 
     bm_etfs  = [e for e in config.SECTOR_CORE if e in daily_ret.columns]
     bm_daily = daily_ret[bm_etfs].mean(axis=1)
