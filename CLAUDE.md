@@ -39,11 +39,12 @@ During severe rate-hike environments (e.g., 2022), ALL duration/credit ETFs can 
 export FRED_API_KEY=your_key_here
 python main.py weights v1        # → bond V1 positions (display only)
 python main.py weights v2        # → bond V2 positions
-python main.py weights sector2e  # → sector V2e positions (current best, weekly)
+python main.py weights sector2e  # → sector V2e positions (weekly)
+python main.py weights sector2f --ucits  # → UCITS-tradeable production set (Nordnet retail)
 ```
 
 Strategy is always a positional argument (not a flag). Default is `v1` if omitted.
-Available strategies: `v1`, `v2`, `v3`, `sector`, `sector2`, `sector2b`, `sector2c`, `sector2d`, `sector2e`, `sector2f`.
+Available strategies: `v1`, `v2`, `v3`, `sector`, `sector2`, `sector2b`, `sector2c`, `sector2d`, `sector2e`, `sector2f`, `sector2g`, `sector2h`.
 
 ## Data Pipeline
 
@@ -129,9 +130,23 @@ Searches over ~25 parameters (lookbacks, allocation caps, signal weights, traili
 
 A separate strategy family runs pure momentum on a broad ETF universe with no FRED signals. It lives in its own modules to keep Optuna config patching isolated from the bond strategy.
 
-**Current best strategy: `sector2e`** — V2d liquid universe + 24m/36m supercycle lookbacks. CAGR 43.6%, Sharpe 3.40, Max DD -7.3% (2005–2026, best params, no cash yield). Zero negative years 2005–2026. Full period (2000–2026): 38.2% CAGR — diluted by sparse ETF universe pre-2005.
+> **⚠️ Honest numbers only.** Earlier docs quoted Sector V2e at "43.6% CAGR / Sharpe 3.40" and V2f at "38.0% CAGR / Sharpe 3.25". **Those were a look-ahead + fill-assumption artifact** (see PRs #6/#8 and the `quant-backtest-integrity` skill). On the corrected engine (trigger lagged one day in `backtest_core.py`), the honest figures over each strategy's full history through 2026-06-05 are roughly:
+>
+> | Key | Period | CAGR | Sharpe | Max DD |
+> |-----|--------|------|--------|--------|
+> | `sector2c` | 2000–2026 | 4.3% | 0.56 | -16.5% |
+> | `sector2d` | 2000–2026 | 5.5% | 0.67 | -18.1% |
+> | `sector2e` | 2000–2026 | 4.5% | 0.62 | -20.0% |
+> | `sector2f` | 2000–2026 | 4.7% | 0.64 | -18.2% |
+> | `sector2g` | 2000–2026 | **5.8%** | **0.65** | -20.8% |
+>
+> Honest momentum returns: Sharpe 0.4–0.9, double-digit drawdowns, several negative years. **`sector2g` is the best honest variant** on the corrected engine. If a change pushes CAGR back toward 20–40% or Sharpe above ~1, assume a look-ahead/fill bug was reintroduced.
 
-**For Norwegian retail (UCITS-only): `sector2f`** — V2e universe with XBI and IGV removed (no acceptable UCITS equivalents on Nordnet). Same params as V2e (no re-optimization needed). Performance over 2000–2026: 38.0% CAGR, Sharpe 3.25, Max DD -7.5% — within 0.1pp CAGR of V2e. Use `python main.py weights sector2f --ucits` to get tickers + ISINs ready for Nordnet.
+**Production (UCITS retail, Norway): `sector2f`** — V2e universe with XBI and IGV removed (no acceptable UCITS equivalents on Nordnet). Same params as V2e. Use `python main.py weights sector2f --ucits` to get tickers + ISINs ready for Nordnet. The US→UCITS mapping lives in `configs/ucits_mapping.py`.
+
+**Honest rebuild: `sector2g`** — built after the look-ahead fix. On the corrected engine the adaptive %-off-peak trailing stop is the *worst* exit (it whipsaws thematic/supercycle ETFs), so V2g drops it for a slow 200-day MA trend break (`EXIT_MODE="ma_break"`) and concentrates into 3 positions. UCITS-tradeable universe (inherits V2f). Leverage scales CAGR and drawdown together — it does NOT improve Sharpe.
+
+**Execution-model variant: `sector2h`** — tight fixed trailing stop **filled at the stop price** (not the close), with slippage + a deterministic fat-tail gap baked in so the headline is gap-aware. The value of a stop hinges almost entirely on the assumed fill price; see memory `stop-fill-model`.
 
 ### Strategy variants
 
@@ -142,8 +157,10 @@ A separate strategy family runs pure momentum on a broad ETF universe with no FR
 | `sector2b` | `configs/sector_v2b.py` | Weekly rebalance, expanded 37-ETF universe |
 | `sector2c` | `configs/sector_v2c.py` | Cross-asset + correlation filter + cluster caps |
 | `sector2d` | `configs/sector_v2d.py` | Liquid ETFs only (≥$100M/day ADV filter) |
-| `sector2e` | `configs/sector_v2e.py` | V2d universe + 24m/36m supercycle momentum lookbacks — **current best / production (US)** |
+| `sector2e` | `configs/sector_v2e.py` | V2d universe + 24m/36m supercycle momentum lookbacks |
 | `sector2f` | `configs/sector_v2f.py` | V2e minus XBI and IGV — **UCITS-tradeable subset for Nordnet retail** |
+| `sector2g` | `configs/sector_v2g.py` | Honest rebuild: 200d MA-break exit + concentrated (N=3). Best Sharpe on the corrected engine |
+| `sector2h` | `configs/sector_v2h.py` | Fixed trailing stop **filled at the stop price**, gap-aware execution model |
 
 ### V2e-specific design: `_weighted_blend` NaN-safe helper
 
@@ -178,14 +195,18 @@ Each `configs/sector_v*.py` is standalone. Optuna patches it via `setattr(cfg, k
 ### Running Sector strategies
 
 ```bash
-# Production (Sector V2e — current best)
+# Sector V2e (24m/36m supercycle lookbacks)
 python main.py weights sector2e       # today's positions + Nordnet stop prices
 python main.py backtest sector2e --best  # full backtest + charts
 python main.py optimize sector2e --trials 300
 
-# UCITS-tradeable variant (Nordnet retail)
+# Production (UCITS retail, Nordnet)
 python main.py weights sector2f --ucits   # positions + UCITS tickers + ISIN
 python main.py backtest sector2f --best
+
+# Honest rebuild + execution-model variants
+python main.py backtest sector2g --best   # MA-break exit, concentrated (best Sharpe, corrected engine)
+python main.py backtest sector2h --best   # fixed trailing stop filled at stop price
 
 # Other variants
 python main.py weights sector2b
@@ -221,7 +242,7 @@ print(s)
 EOF
 ```
 
-Targets (Sector V2b, 2010-2026, optimised params, **no cash yield — SHY earns 0%**): CAGR > 42%, Sharpe > 2.8, Max Drawdown better than -8%.
+Honest targets (Sector V2b, 2010-2026, optimised params, **no cash yield — SHY earns 0%**, look-ahead-fixed engine): CAGR ≈ 3.9%, Sharpe ≈ 0.49, Max Drawdown ≈ -26%. A run materially above CAGR ~6% / Sharpe ~0.9 means a look-ahead or fill bug crept back in — investigate before trusting it.
 
 For V2e use:
 ```bash
@@ -238,7 +259,7 @@ print(s)
 EOF
 ```
 
-Targets (Sector V2e, 2005-2026, optimised params, **no cash yield — SHY earns 0%**): CAGR > 42%, Sharpe > 3.2, Max Drawdown better than -10%.
+Honest targets (Sector V2e, full history → 2026, optimised params, **no cash yield — SHY earns 0%**, look-ahead-fixed engine): CAGR ≈ 4.5%, Sharpe ≈ 0.62, Max Drawdown ≈ -20%. A run materially above CAGR ~6% / Sharpe ~0.9 means a look-ahead or fill bug crept back in — investigate before trusting it.
 
 ## Testing Changes
 
@@ -265,4 +286,4 @@ print(s)
 EOF
 ```
 
-Targets (bond strategy, optimised params, 2011-2026, cash on stop-outs): CAGR > 19%, Sharpe (CAGR/vol) > 2.9, Max Drawdown better than -11%. Primary return metric is CAGR (geometric), not arithmetic mean×252.
+Honest targets (bond strategy, optimised params, 2003-2026, cash on stop-outs, look-ahead-fixed engine): V1 CAGR ≈ 2.7% / Sharpe ≈ 0.85 / MaxDD ≈ -12.7%; V2 ≈ 2.9% / 0.77 / -12.9%; V3 ≈ 2.9% / 0.88 / -11.1%. Primary return metric is CAGR (geometric), not arithmetic mean×252. A run materially above CAGR ~5% / Sharpe ~1.2 means a look-ahead or fill bug crept back in — investigate before trusting it.
