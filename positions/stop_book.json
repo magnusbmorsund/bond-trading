@@ -1,19 +1,14 @@
 {
   "sector2f": {
     "IBB": {
-      "peak": 191.08,
+      "peak": 195.07,
       "placed_date": "2026-06-24",
       "stop_pct": 0.161
     },
     "ITA": {
-      "peak": 246.13,
+      "peak": 250.5,
       "placed_date": "2026-06-08",
       "stop_pct": 0.12
-    },
-    "OIH": {
-      "peak": 432.39,
-      "placed_date": "2026-06-08",
-      "stop_pct": 0.187
     },
     "REMX": {
       "peak": 93.55,
