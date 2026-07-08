@@ -8,17 +8,17 @@
     "ITA": {
       "peak": 251.49,
       "placed_date": "2026-06-08",
-      "stop_pct": 0.124
+      "stop_pct": 0.11599999999999999
+    },
+    "OIH": {
+      "peak": 376.96,
+      "placed_date": "2026-07-08",
+      "stop_pct": 0.18100000000000002
     },
     "SMH": {
       "peak": 671.83,
       "placed_date": "2026-06-08",
       "stop_pct": 0.22
-    },
-    "XLI": {
-      "peak": 184.92,
-      "placed_date": "2026-07-07",
-      "stop_pct": 0.106
     }
   }
 }
