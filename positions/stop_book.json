@@ -3,12 +3,12 @@
     "IBB": {
       "peak": 199.03,
       "placed_date": "2026-06-24",
-      "stop_pct": 0.165
+      "stop_pct": 0.15
     },
     "ITA": {
       "peak": 251.49,
       "placed_date": "2026-06-08",
-      "stop_pct": 0.11900000000000001
+      "stop_pct": 0.114
     },
     "SMH": {
       "peak": 671.83,
@@ -18,7 +18,7 @@
     "XLI": {
       "peak": 182.75,
       "placed_date": "2026-07-09",
-      "stop_pct": 0.10800000000000001
+      "stop_pct": 0.106
     }
   }
 }
