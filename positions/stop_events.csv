@@ -1,0 +1,2 @@
+date,strategy,etf,placed_date,peak_price,stop_pct,stop_price,open,high,low,close,breach_type,est_fill,est_slip_bps,actual_fill,actual_slip_bps,note
+2026-07-28,sector2f,SMH,2026-06-08,671.83,0.22,524.0274,530.73,533.24,518.31,531.72,intraday,524.0274,0.0,,,
