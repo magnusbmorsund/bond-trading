@@ -3,17 +3,17 @@
     "EWZ": {
       "peak": 36.84,
       "placed_date": "2026-07-23",
-      "stop_pct": 0.14400000000000002
+      "stop_pct": 0.146
     },
     "IBB": {
       "peak": 189.29,
       "placed_date": "2026-07-30",
-      "stop_pct": 0.138
+      "stop_pct": 0.141
     },
     "ITA": {
       "peak": 251.49,
       "placed_date": "2026-06-08",
-      "stop_pct": 0.10099999999999999
+      "stop_pct": 0.109
     },
     "SMH": {
       "peak": 561.44,
@@ -23,7 +23,7 @@
     "XLE": {
       "peak": 60.38,
       "placed_date": "2026-07-16",
-      "stop_pct": 0.13699999999999998
+      "stop_pct": 0.14
     }
   }
 }
