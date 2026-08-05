@@ -3,25 +3,30 @@
     "EWZ": {
       "peak": 36.84,
       "placed_date": "2026-07-23",
-      "stop_pct": 0.146
+      "stop_pct": 0.142
     },
     "IBB": {
-      "peak": 189.29,
+      "peak": 194.13,
       "placed_date": "2026-07-30",
       "stop_pct": 0.14300000000000002
     },
     "ITA": {
-      "peak": 251.49,
+      "peak": 253.63,
       "placed_date": "2026-06-08",
       "stop_pct": 0.115
     },
     "OIH": {
-      "peak": 390.22,
+      "peak": 395.22,
       "placed_date": "2026-08-04",
-      "stop_pct": 0.19699999999999998
+      "stop_pct": 0.192
+    },
+    "SIL": {
+      "peak": 84.79,
+      "placed_date": "2026-08-05",
+      "stop_pct": 0.207
     },
     "SMH": {
-      "peak": 573.45,
+      "peak": 585.0,
       "placed_date": "2026-07-30",
       "stop_pct": 0.22
     }
