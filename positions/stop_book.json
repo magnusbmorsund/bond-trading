@@ -1,22 +1,27 @@
 {
   "sector2f": {
     "IBB": {
-      "peak": 195.07,
+      "peak": 196.93,
       "placed_date": "2026-07-30",
-      "stop_pct": 0.149
+      "stop_pct": 0.158
     },
     "ITA": {
       "peak": 256.6,
       "placed_date": "2026-06-08",
-      "stop_pct": 0.11599999999999999
+      "stop_pct": 0.113
     },
     "OIH": {
       "peak": 396.94,
       "placed_date": "2026-08-04",
-      "stop_pct": 0.193
+      "stop_pct": 0.192
+    },
+    "SIL": {
+      "peak": 89.22,
+      "placed_date": "2026-08-07",
+      "stop_pct": 0.203
     },
     "SMH": {
-      "peak": 585.0,
+      "peak": 586.09,
       "placed_date": "2026-07-30",
       "stop_pct": 0.22
     },
