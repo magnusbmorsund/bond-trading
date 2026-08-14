@@ -1670,3 +1670,5 @@ date,strategy,etf,weight_pct
 2026-08-13,sector2f,SIL,24.99
 2026-08-13,sector2f,SMH,25.0
 2026-08-13,sector2f,XLE,25.0
+2026-08-14,sector2f,SMH,50.0
+2026-08-14,sector2f,XLE,50.0

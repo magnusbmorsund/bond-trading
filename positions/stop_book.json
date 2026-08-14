@@ -1,24 +1,14 @@
 {
   "sector2f": {
-    "ITA": {
-      "peak": 256.6,
-      "placed_date": "2026-06-08",
-      "stop_pct": 0.113
-    },
-    "SIL": {
-      "peak": 91.07,
-      "placed_date": "2026-08-07",
-      "stop_pct": 0.18899999999999997
-    },
     "SMH": {
       "peak": 596.3,
       "placed_date": "2026-07-30",
       "stop_pct": 0.22
     },
     "XLE": {
-      "peak": 60.9,
+      "peak": 62.06,
       "placed_date": "2026-08-06",
-      "stop_pct": 0.157
+      "stop_pct": 0.159
     }
   }
 }
