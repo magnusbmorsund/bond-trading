@@ -3,15 +3,15 @@
     "IBB": {
       "peak": 214.39,
       "placed_date": "2026-08-19",
-      "stop_pct": 0.16899999999999998
+      "stop_pct": 0.16399999999999998
     },
     "ITA": {
       "peak": 252.89,
       "placed_date": "2026-08-19",
-      "stop_pct": 0.113
+      "stop_pct": 0.102
     },
     "SIL": {
-      "peak": 97.57,
+      "peak": 101.7,
       "placed_date": "2026-08-17",
       "stop_pct": 0.22
     },
@@ -23,7 +23,7 @@
     "XLE": {
       "peak": 64.7,
       "placed_date": "2026-08-18",
-      "stop_pct": 0.17300000000000001
+      "stop_pct": 0.162
     }
   }
 }
