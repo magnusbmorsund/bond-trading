@@ -1,14 +1,14 @@
 {
   "sector2f": {
     "IBB": {
-      "peak": 214.39,
+      "peak": 216.38,
       "placed_date": "2026-08-19",
-      "stop_pct": 0.16399999999999998
+      "stop_pct": 0.16899999999999998
     },
     "ITA": {
       "peak": 252.89,
       "placed_date": "2026-08-19",
-      "stop_pct": 0.102
+      "stop_pct": 0.1
     },
     "SIL": {
       "peak": 101.7,
@@ -23,7 +23,7 @@
     "XLE": {
       "peak": 64.7,
       "placed_date": "2026-08-18",
-      "stop_pct": 0.162
+      "stop_pct": 0.153
     }
   }
 }
